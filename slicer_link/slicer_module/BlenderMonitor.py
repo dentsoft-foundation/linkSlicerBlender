@@ -193,7 +193,10 @@ class BlenderMonitorWidget:
             name = b_ob.get('name')
         
             #check if there is the same sicer model in the scene
-            slicer_model = slicer.util.getNode(name)
+            try:
+                slicer_model = slicer.util.getNode(name)
+            except slicer.util.MRMLNodeNotFoundException:
+                slicer_model = None
             
             if not slicer_model:                
                 ob_file = os.path.join(tmp_dir, name + ".ply")
@@ -219,7 +222,11 @@ class BlenderMonitorWidget:
             xml_mx = b_ob.find('matrix')
             
             #try to get transform node
-            transform = slicer.util.getNode(name+'_trans')
+            try:
+                transform = slicer.util.getNode(name+'_trans')
+            except slicer.util.MRMLNodeNotFoundException:
+                transform = None
+                
             if not transform:
                 transform = slicer.vtkMRMLTransformNode()
                 transform.SetName(name+'_trans')        
