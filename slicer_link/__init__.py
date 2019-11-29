@@ -21,8 +21,8 @@ http://blender.stackexchange.com/questions/14202/index-out-of-range-for-uilist-c
 bl_info = {
     "name": "Blender Scene to Slicer",
     "author": "Patrick R. Moore",
-    "version": (1, 0),
-    "blender": (2, 78, 0),
+    "version": (1, 1),
+    "blender": (2, 80, 0),
     "location": "File > Export > Slicer (.xml)",
     "description": "Adds a new Mesh Object",
     "warning": "",
@@ -49,7 +49,7 @@ from bpy.app.handlers import persistent
 from io_mesh_ply import export_ply
 
 def get_settings():
-    addons = bpy.context.user_preferences.addons
+    addons = bpy.context.preferences.addons
     stack = inspect.stack()
     for entry in stack:
         folderpath = os.path.dirname(entry[1])
@@ -102,11 +102,11 @@ def material_to_xml_element(mat):
     xml_mat = Element('material')
 
     r = SubElement(xml_mat, 'r')
-    r.text = str(round(mat.diffuse_color.r,4))
+    r.text = str(round(mat.diffuse_color[0],4))
     g = SubElement(xml_mat, 'g')
-    g.text = str(round(mat.diffuse_color.g,4))
+    g.text = str(round(mat.diffuse_color[1],4))
     b = SubElement(xml_mat, 'b')
-    b.text = str(round(mat.diffuse_color.b,4))
+    b.text = str(round(mat.diffuse_color[2],4))
     
     return xml_mat
 
@@ -121,11 +121,11 @@ __m.transform_cache = {}
 
 
 def detect_transforms():
-    if "SlicerLink" not in bpy.data.groups:
+    if "SlicerLink" not in bpy.data.collections:
         return None
     
     changed = []
-    sg = bpy.data.groups['SlicerLink']
+    sg = bpy.data.collections['SlicerLink']
     for ob in sg.objects:
         if ob.name not in __m.transform_cache:
             changed += [ob.name]
@@ -143,7 +143,7 @@ def detect_transforms():
 #when closing file, delete temp dir contents
 @persistent
 def cleanup_temp_dir(dummy):
-    addons = bpy.context.user_preferences.addons
+    addons = bpy.context.preferences.addons
     settings = addons['slicer_link'].preferences
     #safety, need the directory to exist
     if not os.path.exists(settings.tmp_dir): return
@@ -164,7 +164,7 @@ def cleanup_temp_dir(dummy):
 @persistent
 def export_to_slicer(scene):
     
-    addons = bpy.context.user_preferences.addons
+    addons = bpy.context.preferences.addons
     settings = addons['slicer_link'].preferences
     
     #check for changes
@@ -259,10 +259,10 @@ class SelectedtoSlicerGroup(bpy.types.Operator):
     def execute(self,context):
         
           
-        if "SlicerLink" not in bpy.data.groups:
-            sg = bpy.data.groups.new('SlicerLink')
+        if "SlicerLink" not in bpy.data.collections:
+            sg = bpy.data.collections.new('SlicerLink')
         else:
-            sg = bpy.data.groups['SlicerLink']
+            sg = bpy.data.collections['SlicerLink']
           
         if self.overwrite:
             for ob in sg.objects:
@@ -314,7 +314,7 @@ class SlicerPLYExport(bpy.types.Operator):
             if os.path.exists(temp_file):
                 print('overwriting')
             
-            me = ob.to_mesh(context.scene, True, 'PREVIEW')
+            me = ob.to_mesh(preserve_all_data_layers=False, depsgraph=None)
             if not me:
                 continue
             
@@ -323,7 +323,8 @@ class SlicerPLYExport(bpy.types.Operator):
                     use_uv_coords=False,
                     use_colors=False,
                     )
-            bpy.data.meshes.remove(me)
+            #bpy.data.meshes.remove(me) # blender 2.7
+            ob.to_mesh_clear()
         
             
         return {'FINISHED'}
@@ -370,19 +371,19 @@ class SlicerXMLExport(bpy.types.Operator):
     
 class StartSlicerLink(bpy.types.Operator):
     """
-    Start updating slicer live by adding a scene_update_post handler
+    Start updating slicer live by adding a scene_update_post/depsgraph_update_post (2.8) handler
     """
     bl_idname = "scene.slicer_link_start"
     bl_label = "Slicer Link Start"
     
     def execute(self,context):
         
-        handlers = [hand.__name__ for hand in bpy.app.handlers.scene_update_post]
+        handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
         
         if "export_to_slicer" not in handlers:
-            bpy.app.handlers.scene_update_post.append(export_to_slicer) 
+            bpy.app.handlers.depsgraph_update_post.append(export_to_slicer) 
         
-        addons = bpy.context.user_preferences.addons
+        addons = bpy.context.preferences.addons
         settings = addons['slicer_link'].preferences
         #safety, need the directory to exist
         if not os.path.exists(settings.tmp_dir): return {'FINISHED'} #TODO Error no tmp directory
@@ -392,8 +393,8 @@ class StartSlicerLink(bpy.types.Operator):
             closed = os.path.join(settings.tmp_dir, 'closed.txt')
             os.remove(closed)
         
-        if "SlicerLink" not in bpy.data.groups: return {'FINISHED'} #TODO Error no group
-        sg = bpy.data.groups['SlicerLink']
+        if "SlicerLink" not in bpy.data.collections: return {'FINISHED'} #TODO Error no group
+        sg = bpy.data.collections['SlicerLink']
         for ob in sg.objects: #[TODO] object group managment
             #slicer does not like . in ob names
             if "." in ob.name:
@@ -403,7 +404,7 @@ class StartSlicerLink(bpy.types.Operator):
             if os.path.exists(temp_file):
                 print('overwriting')
             
-            me = ob.to_mesh(context.scene, True, 'PREVIEW')
+            me = ob.to_mesh(preserve_all_data_layers=False, depsgraph=None)
             if not me:
                 continue
             
@@ -412,7 +413,8 @@ class StartSlicerLink(bpy.types.Operator):
                     use_uv_coords=False,
                     use_colors=False,
                     )
-            bpy.data.meshes.remove(me)
+            #bpy.data.meshes.remove(me) # blender 2.7
+            ob.to_mesh_clear()
         
         #write an xml file with new info about objects
         obs = [ob for ob in sg.objects]
@@ -443,11 +445,11 @@ class StopSlicerLink(bpy.types.Operator):
     
     def execute(self,context):
         
-        handlers = [hand.__name__ for hand in bpy.app.handlers.scene_update_post]
+        handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
         if "export_to_slicer" in handlers:
-            bpy.app.handlers.scene_update_post.remove(export_to_slicer) 
+            bpy.app.handlers.depsgraph_update_post.remove(export_to_slicer) 
         
-        addons = bpy.context.user_preferences.addons
+        addons = bpy.context.preferences.addons
         settings = addons['slicer_link'].preferences
         #send a message to slicer that the scene has changed
         closed = os.path.join(settings.tmp_dir, 'closed.txt')
@@ -467,7 +469,7 @@ class SlicerLinkPanel(bpy.types.Panel):
     bl_label = "Slicer Link Panel"
     bl_idname = "SCENE_PT_layout"
     bl_space_type = "VIEW_3D"
-    bl_region_type = 'TOOLS'
+    bl_region_type = 'UI'
     bl_category = "Open Dental CAD"
     bl_context = ""
 
@@ -550,9 +552,9 @@ def unregister():
     bpy.utils.unregister_class(SelectedtoSlicerGroup)
     bpy.utils.unregister_class(SlicerLinkPanel)
     
-    handlers = [hand.__name__ for hand in bpy.app.handlers.scene_update_post]
+    handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
     if "export_to_slicer" in handlers:
-        bpy.app.handlers.scene_update_post.remove(export_to_slicer) 
+        bpy.app.handlers.depsgraph_update_post.remove(export_to_slicer) 
     handlers = [hand.__name__ for hand in bpy.app.handlers.load_post]
     if "cleanup_temp_dir" in handlers:
         bpy.app.handlers.load_post.remove(cleanup_temp_dir)
