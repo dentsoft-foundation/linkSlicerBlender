@@ -4,7 +4,9 @@ import os
 from xml.dom import minidom
 from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree
 from xml.etree import ElementTree as ET
+import re
 
+from concurrent.futures import ProcessPoolExecutor
 
 #http://codeprogress.com/python/libraries/pyqt/showPyQTExample.php?index=419&key=QFileSystemWatcherDirChange&version=4
 #http://stackoverflow.com/questions/32097163/pyqt-qfilesystemwatcher-doesnt-capture-the-file-added
@@ -16,7 +18,7 @@ from xml.etree import ElementTree as ET
 #http://pyqt.sourceforge.net/Docs/PyQt4/qtimer.html
 #Endoscopy Thread has QTimer example
 
-
+from comm import asyncsock
 
 def xor(lst1, lst2):
     """ returns a tuple of items of item not in either of lists
@@ -55,8 +57,11 @@ class BlenderMonitorWidget:
             self.parent.show()
 
         self.watching = False
-        self.file_monitor = None  #don't monitor until told to
-        self._initialContent = []
+        #self.file_monitor = None  #don't monitor until told to
+        #self._initialContent = []
+        self.sock = None
+
+        self.process_executor = ProcessPoolExecutor(max_workers=1)
             
         #self.timer = qt.QTimer()
         #self.timer.setInterval(1000)
@@ -120,7 +125,7 @@ class BlenderMonitorWidget:
         #self.helloWorldButton = helloWorldButton
 
         
-    
+    """ 
      
     def slotDirChanged(self, path):
         newContent = ''.join(xor(os.listdir(path), self._initialContent))
@@ -138,7 +143,7 @@ class BlenderMonitorWidget:
             update_file = os.path.join(path, 'update.txt')
             
             #read any xml file, and do what is neeeded
-            self.onHelloWorldButtonClicked()
+            self.update_scene() #event driver
             
             #delete the update signal
             os.remove(update_file)
@@ -156,8 +161,8 @@ class BlenderMonitorWidget:
     
     def connectSignals(self):
         self.file_monitor.directoryChanged.connect(self.slotDirChanged)
-        
-    def onHelloWorldButtonClicked(self):
+    """      
+    def update_scene(self, xml):
         if not self.watching: return
         
         #find the temp directory
@@ -171,20 +176,20 @@ class BlenderMonitorWidget:
             print('this script is located here')
             print(self_dir)
             return
-        
-        scene_file = os.path.join(tmp_dir, "blend_to_slicer.xml")
-        print(scene_file)
+        """
+        #scene_file = os.path.join(tmp_dir, "blend_to_slicer.xml")
+        #print(scene_file)
         if not os.path.exists(scene_file):
             print('NO XML FILE IN THE TEMP DIRECOTRY')
             print("Export scene from Blender")
             print("it needs to be stored in the following directory")
             print(tmp_dir)
             return
-        
-        my_file = open(scene_file)
-        tree = ET.parse(my_file)
+        """
+        #my_file = open(scene_file)
+        tree = ET.ElementTree(ET.fromstring(xml))
         x_scene = tree.getroot()
-        my_file.close()
+        #my_file.close()
         
         s_scene = slicer.mrmlScene
         #scene = slicer.mrmlScene
@@ -243,13 +248,15 @@ class BlenderMonitorWidget:
         
             #update object location in scene
             transform.SetAndObserveMatrixTransformToParent(my_matrix)
+            
 
     
     def onPlayButtonToggled(self, checked):
         if checked:
             self.watching = True
             self.playButton.text = "Stop"
-            if self.file_monitor == None:
+            if self.sock == None:
+                """
                 fileSysWatcher  = qt.QFileSystemWatcher()
                 fileSysWatcher.addPath(self.outputDirSelector.currentPath)
                 fileSysWatcher.addPath(self.outputDirSelector.currentPath.replace("\\","/")) 
@@ -257,9 +264,20 @@ class BlenderMonitorWidget:
                 self.connectSignals()
 
                 self._initialContent = os.listdir(self.outputDirSelector.currentPath)
-                self.onHelloWorldButtonClicked()
+                """
+                #try:
+
+                self.sock = asyncsock.SlicerComm.EchoClient(asyncsock.address[0], asyncsock.address[1], [("XML", self.update_scene), ("TEST", self.test)])
+                #asyncsock.init_thread(asyncsock.start)
+                #self.process_executor.submit(asyncsock.start)
+                #except:
+                #    asyncsock.socket_obj = Server(asyncsock.address)
+                #    asyncsock.init_thread(asyncsock.start)
+                #    #asyncsock.start()
+                #    print("server started -> " + str(asyncsock.socket_obj.address))
+                #self.onHelloWorldButtonClicked()
                 
-                
+                """
                 update_file = os.path.join(self.outputDirSelector.currentPath, 'update.txt')
                 if os.path.exists(update_file):
                     #delete the update signal
@@ -271,12 +289,19 @@ class BlenderMonitorWidget:
                     print(os.listdir(self.outputDirSelector.currentPath))
                 #TODO, import models and what not?
                 #TODO, update outputDirSelctor.currentPath if needed
+                """
         else:
             self.watching = False
             self.playButton.text = "Start"
+            self.sock.handle_close()
             
             #TODO
                 
     def frameDelaySliderValueChanged(self, newValue):
         #print "frameDelaySliderValueChanged:", newValue
         self.timer.interval = newValue
+
+    def test (self, data):
+        self.sock.send_data("TEST","BOGUS PACKET DATA from Slicer!!!")
+
+

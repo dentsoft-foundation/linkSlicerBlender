@@ -41,12 +41,16 @@ import bpy
 #XML
 from xml.etree import ElementTree as ET
 from xml.dom import minidom
-from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree
+from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree, tostring
 
 #Blender
 from bpy.types import Operator, AddonPreferences
 from bpy.app.handlers import persistent
 from io_mesh_ply import export_ply
+
+#TCP sock lib
+from .slicer_module import comm as asyncsock
+
 
 def get_settings():
     addons = bpy.context.preferences.addons
@@ -59,6 +63,70 @@ def get_settings():
         assert False, 'could not find non-"lib" folder'
     settings = addons[foldername].preferences
     return settings
+
+def test():
+    handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
+
+    if "export_to_slicer" not in handlers:
+        bpy.app.handlers.depsgraph_update_post.append(export_to_slicer) 
+    
+    addons = bpy.context.preferences.addons
+    settings = addons['slicer_link'].preferences
+    #safety, need the directory to exist
+    #if not os.path.exists(settings.tmp_dir): return {'FINISHED'} #TODO Error no tmp directory
+    
+    #if 'closed.txt' in os.listdir(settings.tmp_dir):
+    #    #send a message to slicer that the scene has changed
+    #    closed = os.path.join(settings.tmp_dir, 'closed.txt')
+    #    os.remove(closed)
+    
+    if "SlicerLink" not in bpy.data.collections: return {'FINISHED'} #TODO Error no group
+    sg = bpy.data.collections['SlicerLink']
+    for ob in sg.objects: #[TODO] object group managment
+        #slicer does not like . in ob names
+        if "." in ob.name:
+            ob.name.replace(".","_")
+            
+        temp_file = os.path.join(settings.tmp_dir, ob.name + ".ply")
+        if os.path.exists(temp_file):
+            print('overwriting')
+        
+        me = ob.to_mesh(preserve_all_data_layers=False, depsgraph=None)
+        if not me:
+            continue
+        
+        ret = export_ply.save_mesh(temp_file, me,
+                use_normals=False,
+                use_uv_coords=False,
+                use_colors=False,
+                )
+        #bpy.data.meshes.remove(me) # blender 2.7
+        ob.to_mesh_clear()
+    
+    #write an xml file with new info about objects
+    obs = [ob for ob in sg.objects]
+    x_scene = build_xml_scene(obs)
+    
+    """
+    xml_file_name = os.path.join(settings.tmp_dir, "blend_to_slicer.xml")
+    
+    if not os.path.exists(xml_file_name):
+        my_file = open(xml_file_name, 'xb')
+    else:
+        my_file = open(xml_file_name,'wb')
+    
+    ElementTree(x_scene).write(my_file)
+    my_file.close()
+    """
+    xml_str = tostring(x_scene).decode() #, encoding='unicode', method='xml')
+    asyncsock.socket_obj.sock_handler[0].send_data("XML", xml_str)
+    """
+    #send signal for slicer to update.  #TODO, send signal with socket
+    update_file_name = os.path.join(settings.tmp_dir, 'update.txt')
+    new_file = open(update_file_name, mode='xb')
+    new_file.write('Update Slicer please'.encode())
+    new_file.close()
+    """
 
 #Preferences
 class SlicerAddonPreferences(AddonPreferences):
@@ -140,6 +208,7 @@ def detect_transforms():
     if len(changed) == 0: return None
     return changed    
 
+"""
 #when closing file, delete temp dir contents
 @persistent
 def cleanup_temp_dir(dummy):
@@ -159,7 +228,7 @@ def cleanup_temp_dir(dummy):
     closed = os.path.join(settings.tmp_dir, 'closed.txt')
     close_file = open(closed,'wb')
     close_file.close()
-    
+"""
     
 @persistent
 def export_to_slicer(scene):
@@ -178,14 +247,15 @@ def export_to_slicer(scene):
     now = time.time()
     if now - __m.last_update < .2: return #TODO time limit
     __m.last_update = time.time()    
-        
+    
+    """
     update_file_name = os.path.join(settings.tmp_dir, 'update.txt')
     
     #don't update unless slier has read previous changes
     if os.path.exists(update_file_name):
         print('slicer has not updated changes, cache changes?')
         return
-    
+    """
     #update the transform cache
     for ob_name in changed:
         if ob_name not in bpy.data.objects: continue
@@ -194,6 +264,7 @@ def export_to_slicer(scene):
     #write an xml file with new info about objects
     obs = [bpy.data.objects.get(ob_name) for ob_name in changed if bpy.data.objects.get(ob_name)]
     x_scene = build_xml_scene(obs)
+    """
     xml_file_name = os.path.join(settings.tmp_dir, "blend_to_slicer.xml")
     
     if not os.path.exists(xml_file_name):
@@ -207,7 +278,11 @@ def export_to_slicer(scene):
     #send signal for slicer to update.  #TODO, send signal with socket
     new_file = open(update_file_name, mode='xb')
     new_file.write('Update Slicer please'.encode())
-    new_file.close()            
+    new_file.close()
+    """
+    xml_str = tostring(x_scene).decode()
+    asyncsock.socket_obj.sock_handler[0].send_data("XML", xml_str)
+
             
 def write_ob_transforms_to_cache(obs):
     __m.ob_names = []
@@ -377,64 +452,21 @@ class StartSlicerLink(bpy.types.Operator):
     bl_label = "Slicer Link Start"
     
     def execute(self,context):
-        
-        handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
-        
-        if "export_to_slicer" not in handlers:
-            bpy.app.handlers.depsgraph_update_post.append(export_to_slicer) 
-        
-        addons = bpy.context.preferences.addons
-        settings = addons['slicer_link'].preferences
-        #safety, need the directory to exist
-        if not os.path.exists(settings.tmp_dir): return {'FINISHED'} #TODO Error no tmp directory
-        
-        if 'closed.txt' in os.listdir(settings.tmp_dir):
-            #send a message to slicer that the scene has changed
-            closed = os.path.join(settings.tmp_dir, 'closed.txt')
-            os.remove(closed)
-        
-        if "SlicerLink" not in bpy.data.collections: return {'FINISHED'} #TODO Error no group
-        sg = bpy.data.collections['SlicerLink']
-        for ob in sg.objects: #[TODO] object group managment
-            #slicer does not like . in ob names
-            if "." in ob.name:
-                ob.name.replace(".","_")
-                
-            temp_file = os.path.join(settings.tmp_dir, ob.name + ".ply")
-            if os.path.exists(temp_file):
-                print('overwriting')
+        if asyncsock.socket_obj == None:
+            #try:
+            #    asyncsock.socket_obj = Client(asyncsock.address[0], asyncsock.address[1])
+            #    asyncsock.init_thread(asyncsock.start)
+            #except:
+            asyncsock.socket_obj = asyncsock.BlenderComm.EchoServer(asyncsock.address[0], asyncsock.address[1])
+            asyncsock.thread = asyncsock.BlenderComm.init_thread(asyncsock.BlenderComm.start)
+            #asyncsock.start()
+            print("server started -> ")
+            return {'FINISHED'}
             
-            me = ob.to_mesh(preserve_all_data_layers=False, depsgraph=None)
-            if not me:
-                continue
-            
-            ret = export_ply.save_mesh(temp_file, me,
-                    use_normals=False,
-                    use_uv_coords=False,
-                    use_colors=False,
-                    )
-            #bpy.data.meshes.remove(me) # blender 2.7
-            ob.to_mesh_clear()
-        
-        #write an xml file with new info about objects
-        obs = [ob for ob in sg.objects]
-        x_scene = build_xml_scene(obs)
-        xml_file_name = os.path.join(settings.tmp_dir, "blend_to_slicer.xml")
-        
-        if not os.path.exists(xml_file_name):
-            my_file = open(xml_file_name, 'xb')
-        else:
-            my_file = open(xml_file_name,'wb')
-        
-        ElementTree(x_scene).write(my_file)
-        my_file.close()
-        
-        #send signal for slicer to update.  #TODO, send signal with socket
-        update_file_name = os.path.join(settings.tmp_dir, 'update.txt')
-        new_file = open(update_file_name, mode='xb')
-        new_file.write('Update Slicer please'.encode())
-        new_file.close() 
-        return {'FINISHED'}
+        elif asyncsock.socket_obj is not None:
+            test()
+            print("test")
+            return {'FINISHED'}
     
 class StopSlicerLink(bpy.types.Operator):
     """
@@ -452,6 +484,7 @@ class StopSlicerLink(bpy.types.Operator):
         addons = bpy.context.preferences.addons
         settings = addons['slicer_link'].preferences
         #send a message to slicer that the scene has changed
+        """
         closed = os.path.join(settings.tmp_dir, 'closed.txt')
         close_file = open(closed,'wb')
         close_file.close()
@@ -460,7 +493,8 @@ class StopSlicerLink(bpy.types.Operator):
         update = os.path.join(settings.tmp_dir, 'update.txt')
         if os.path.exists(update):
             os.remove(update)
-            
+        """
+        asyncsock.thread.join()
         return {'FINISHED'}        
 
 
