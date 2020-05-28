@@ -1,6 +1,9 @@
 # linkSlicerBlender
 An extension script to sync objects between Blender and 3D Slicer.
 
+UPDATE: Slicer-Blender TCP comm builds on asynchronous event handling to allow data transmission over network between Slicer-Blender and Blender-Blender instances.
+- BUILD TREE: https://github.com/dentsoft-foundation/linkSlicerBlender/tree/socket
+
 Compatible with Blender 2.8 and 3D Slicer 10 and 11
 
 Install instructions: https://dentsoft.foundation/knowledge-base/install-setup-linkslicerblender-for-use/
