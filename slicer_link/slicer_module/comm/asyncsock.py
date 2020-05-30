@@ -17,7 +17,9 @@ thread = None
 address = ('localhost', 5959)
 
 class SlicerComm():
-    #https://github.com/pieper/SlicerWeb/blob/master/WebServer/WebServer.py#L1479 adapted from, using QSocketNotifier class
+    # https://github.com/pieper/SlicerWeb/blob/master/WebServer/WebServer.py#L1479 adapted from, using QSocketNotifier class
+    # https://stackoverflow.com/questions/55494422/python-qtcpsocket-and-qtcpserver-receiving-message QtTcpSocket example
+    # https://python.hotexamples.com/examples/PyQt4.QtNetwork/QTcpSocket/-/python-qtcpsocket-class-examples.html 
     class EchoClient():
         """3D Slicer send and receive/handle data from TCP server via Qt event loop.
         """
@@ -28,51 +30,34 @@ class SlicerComm():
             self.write_buffer = ""
             self.connected = False
             self.cmd_ops = {"TERM" : [self.handle_close,[]]} #dict stores packet command, corresponding function call, and the number of arguments needed to be passed
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket = qt.QTcpSocket()
             try:
-                self.socket.connect((host, port))
-                self.connected = True
+                self.socket.connectToHost(host, port)
             except:
                 return
-            self.notifier_read = qt.QSocketNotifier(self.socket.fileno(),qt.QSocketNotifier.Read)
-            self.notifier_read.connect('activated(int)', self.handle_read)
-            self.notifier_write = qt.QSocketNotifier(self.socket.fileno(),qt.QSocketNotifier.Write)
-            #self.notifier_write.connect('activated(int)', self.handle_write)
+            self.socket.readyRead.connect(self.handle_read)
+            self.socket.connected.connect(self.handle_connected)
             if handle is not None: 
                 for CMD, handler in handle:
                     self.cmd_ops[CMD] = handler
             return
 
+        def handle_connected(self):
+            self.connected = True
+
         def handle_close(self):
             self.connected = False
-            self.socket.close()
-            self.notifier_read.disconnect('activated(int)', self.handle_read)
-            del self.notifier_read
-            self.notifier_write.disconnect('activated(int)', self.handle_write)
-            del self.notifier_write
-
-        def handle_write(self):
-            print("SENDING!")
-            print(self.write_buffer)
-            sent = self.socket.send(self.write_buffer)
-            self.write_buffer = self.write_buffer[sent:]
-            if len(self.write_buffer) == 0:
-                self.notifier_write.disconnect('activated(int)', self.handle_write)
 
         def handle_read(self):
-            data = self.socket.recv(8192)
-            print("READING DATA:")
+            data = self.socket.readAll()
             print(data)
             self.received_data.append(data)
             for i in range(0, len(self.received_data)):
-                try: self.received_data[i] = self.received_data[i].decode()
-                except: pass
+                self.received_data[i] = self.received_data[i].data().decode()
             data = ''.join(self.received_data)
             if packet_terminator in data:
                 self._process_data()
                 self.received_data = []
-                self.notifier_read.disconnect('activated(int)', self.handle_read)
-                self.notifier_read.connect('activated(int)', self.handle_read)
 
         def _process_data(self):
             """We have the full ECHO command"""
@@ -87,7 +72,8 @@ class SlicerComm():
 
         def send_data(self, cmd, data):
             self.write_buffer = str.encode(cmd.upper() + " net_packet: " + data + packet_terminator)
-            self.notifier_write.connect('activated(int)', self.handle_write)
+            self.socket.write(self.write_buffer)
+            self.write_buffer = ""
 
 class BlenderComm():
 

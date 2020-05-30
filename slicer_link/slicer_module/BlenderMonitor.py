@@ -268,6 +268,8 @@ class BlenderMonitorWidget:
                 #try:
 
                 self.sock = asyncsock.SlicerComm.EchoClient(asyncsock.address[0], asyncsock.address[1], [("XML", self.update_scene), ("TEST", self.test)])
+                self.sock.send_data("TEST", 'bogus data from slicer!')
+                #asyncsock.SlicerComm.start()
                 #asyncsock.init_thread(asyncsock.start)
                 #self.process_executor.submit(asyncsock.start)
                 #except:
