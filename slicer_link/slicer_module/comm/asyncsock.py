@@ -14,7 +14,7 @@ import time
 packet_terminator = '\nEND_TRANSMISSION\n\n'
 socket_obj = None
 thread = None
-address = ('localhost', 5959)
+address = ('127.0.0.1', 5959)
 
 class SlicerComm():
     # https://github.com/pieper/SlicerWeb/blob/master/WebServer/WebServer.py#L1479 adapted from, using QSocketNotifier class
@@ -37,6 +37,7 @@ class SlicerComm():
                 return
             self.socket.readyRead.connect(self.handle_read)
             self.socket.connected.connect(self.handle_connected)
+            self.socket.disconnected.connect(self.handle_close)
             if handle is not None: 
                 for CMD, handler in handle:
                     self.cmd_ops[CMD] = handler
@@ -47,6 +48,8 @@ class SlicerComm():
 
         def handle_close(self):
             self.connected = False
+            self.socket.close()
+            print("DISCONNECTED")
 
         def handle_read(self):
             data = self.socket.readAll()
@@ -195,7 +198,7 @@ class BlenderComm():
             self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
             #self.set_reuse_addr()
             self.bind((host, port))
-            self.listen(5)
+            self.listen(5) #max number of connected clients
             self.sock_handler = []
             self.cmd_handle = cmd_handle
 
@@ -204,6 +207,12 @@ class BlenderComm():
             self.sock_handler.append(BlenderComm.EchoHandler(sock))
             self.sock_handler[0].init(self.cmd_handle)
             self.sock_handler[0].connected = True
+
+        def stop_server(self, socket_obj):
+            for connected_client in socket_obj.sock_handler:
+                connected_client.handle_close()
+            self.close()
+            print("server stopped")
         
 
 if __name__ == "__main__":

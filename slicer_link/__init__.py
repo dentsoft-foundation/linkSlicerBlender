@@ -247,15 +247,7 @@ def export_to_slicer(scene):
     now = time.time()
     if now - __m.last_update < .2: return #TODO time limit
     __m.last_update = time.time()    
-    
-    """
-    update_file_name = os.path.join(settings.tmp_dir, 'update.txt')
-    
-    #don't update unless slier has read previous changes
-    if os.path.exists(update_file_name):
-        print('slicer has not updated changes, cache changes?')
-        return
-    """
+
     #update the transform cache
     for ob_name in changed:
         if ob_name not in bpy.data.objects: continue
@@ -264,22 +256,6 @@ def export_to_slicer(scene):
     #write an xml file with new info about objects
     obs = [bpy.data.objects.get(ob_name) for ob_name in changed if bpy.data.objects.get(ob_name)]
     x_scene = build_xml_scene(obs)
-    """
-    xml_file_name = os.path.join(settings.tmp_dir, "blend_to_slicer.xml")
-    
-    if not os.path.exists(xml_file_name):
-        my_file = open(xml_file_name, 'xb')
-    else:
-        my_file = open(xml_file_name,'wb')
-    
-    ElementTree(x_scene).write(my_file)
-    my_file.close()
-    
-    #send signal for slicer to update.  #TODO, send signal with socket
-    new_file = open(update_file_name, mode='xb')
-    new_file.write('Update Slicer please'.encode())
-    new_file.close()
-    """
     xml_str = tostring(x_scene).decode()
     asyncsock.socket_obj.sock_handler[0].send_data("XML", xml_str)
 
@@ -311,15 +287,6 @@ def build_xml_scene(obs):
             xob.extend([xmlmat])
     
     return x_scene
-    '''    
-    if not os.path.exists(file_path):
-        my_file = open(file_path, 'xb')
-    else:
-        my_file = open(file_path,'wb')
-    
-    ElementTree(x_scene).write(my_file)
-    my_file.close()
-    '''
                  
 class SelectedtoSlicerGroup(bpy.types.Operator):
     """
@@ -444,35 +411,76 @@ class SlicerXMLExport(bpy.types.Operator):
         
         return {'FINISHED'}
     
-class StartSlicerLink(bpy.types.Operator):
+class StartSlicerLinkServer(bpy.types.Operator):
     """
     Start updating slicer live by adding a scene_update_post/depsgraph_update_post (2.8) handler
     """
-    bl_idname = "scene.slicer_link_start"
-    bl_label = "Slicer Link Start"
+    bl_idname = "link_slicer.slicer_link_server_start"
+    bl_label = "Server"
     
     def execute(self,context):
         if asyncsock.socket_obj == None:
-            #try:
-            #    asyncsock.socket_obj = Client(asyncsock.address[0], asyncsock.address[1])
-            #    asyncsock.init_thread(asyncsock.start)
-            #except:
-            asyncsock.socket_obj = asyncsock.BlenderComm.EchoServer(asyncsock.address[0], asyncsock.address[1])
+            asyncsock.socket_obj = asyncsock.BlenderComm.EchoServer(context.scene.host_addr, int(context.scene.host_port))
             asyncsock.thread = asyncsock.BlenderComm.init_thread(asyncsock.BlenderComm.start)
-            #asyncsock.start()
+            context.scene.socket_state = "SERVER"
             print("server started -> ")
-            return {'FINISHED'}
-            
-        elif asyncsock.socket_obj is not None:
+        return {'FINISHED'}
+
+class StartSlicerLinkClient(bpy.types.Operator):
+    """
+    Start updating slicer live by adding a scene_update_post/depsgraph_update_post (2.8) handler
+    """
+    bl_idname = "link_slicer.slicer_link_client_start"
+    bl_label = "Client"
+    
+    def execute(self,context):
+        if asyncsock.socket_obj == None:
+            asyncsock.socket_obj = asyncsock.BlenderComm.EchoClient(context.scene.host_addr, int(context.scene.host_port))
+            asyncsock.thread = asyncsock.BlenderComm.init_thread(asyncsock.BlenderComm.start)
+            context.scene.socket_state = "CLIENT"
+            print("client started -> ")
+        return {'FINISHED'}
+
+class linkObjectsToSlicer(bpy.types.Operator):
+    """
+    Start updating slicer live by adding a scene_update_post/depsgraph_update_post (2.8) handler
+    """
+    bl_idname = "link_slicer.link_objects_to_slicer"
+    bl_label = "Link Object(s)"
+    
+    def execute(self,context):
+        if asyncsock.socket_obj is not None:
             test()
-            print("test")
-            return {'FINISHED'}
+        return {'FINISHED'}
+
+class unlinkObjectsFromSlicer(bpy.types.Operator):
+    """
+    Start updating slicer live by adding a scene_update_post/depsgraph_update_post (2.8) handler
+    """
+    bl_idname = "link_slicer.unlink_objects_from_slicer"
+    bl_label = "Unlink Object(s)"
+    
+    def execute(self,context):
+        pass
+        return {'FINISHED'}
+
+class deleteObjectsBoth(bpy.types.Operator):
+    """
+    Start updating slicer live by adding a scene_update_post/depsgraph_update_post (2.8) handler
+    """
+    bl_idname = "link_slicer.delete_objects_both"
+    bl_label = "Delete Object(s)"
+    
+    def execute(self,context):
+        pass
+        return {'FINISHED'}
+            
     
 class StopSlicerLink(bpy.types.Operator):
     """
     Stop updating slicer and remove the handler from scene_update_post
     """
-    bl_idname = "scene.slicer_link_stop"
+    bl_idname = "link_slicer.slicer_link_stop"
     bl_label = "Slicer Link Stop"
     
     def execute(self,context):
@@ -483,18 +491,15 @@ class StopSlicerLink(bpy.types.Operator):
         
         addons = bpy.context.preferences.addons
         settings = addons['slicer_link'].preferences
-        #send a message to slicer that the scene has changed
-        """
-        closed = os.path.join(settings.tmp_dir, 'closed.txt')
-        close_file = open(closed,'wb')
-        close_file.close()
-        
-        #clean out temp files?  No just pause the link?
-        update = os.path.join(settings.tmp_dir, 'update.txt')
-        if os.path.exists(update):
-            os.remove(update)
-        """
+
+        if context.scene.socket_state == "SERVER":
+            asyncsock.socket_obj.stop_server(asyncsock.socket_obj)
+            context.scene.socket_state = "NONE"
+        elif context.scene.socket_state == "CLIENT":
+            asyncsock.socket_obj.handle_close()
+            context.scene.socket_state = "NONE"
         asyncsock.thread.join()
+        print("thread joined")
         return {'FINISHED'}        
 
 
@@ -513,16 +518,44 @@ class SlicerLinkPanel(bpy.types.Panel):
         scene = context.scene
 
         # Create a simple row.
-        layout.label(text=" Simple Row:")
+        layout.label(text=" Configure:")
 
         row = layout.row()
-        row.operator("object.slicergroup")
-        
+        row.prop(context.scene, "host_addr")
         row = layout.row()
-        row.operator("scene.slicer_link_start")
-        
+        row.prop(context.scene, "host_port")
+
         row = layout.row()
-        row.operator("scene.slicer_link_stop")
+        if context.scene.socket_state == "NONE":
+            row.label(text="Start Mode:")
+            row.operator("link_slicer.slicer_link_server_start")
+            row.operator("link_slicer.slicer_link_client_start")
+        elif context.scene.socket_state == "SERVER" or context.scene.socket_state == "CLIENT":
+            if context.scene.socket_state == "SERVER": row.label(text="Running: Server mode.")
+            elif context.scene.socket_state == "CLIENT":row.label(text="Running: Client mode.")
+            row = layout.row()
+            row.operator("link_slicer.slicer_link_stop")
+            
+        if context.scene.socket_state == "SERVER" or context.scene.socket_state == "CLIENT":
+            row = layout.row()
+            row.label(text="Operators:")
+
+            row = layout.row()
+            row.operator("object.slicergroup")
+
+            row = layout.row()
+            row.operator("link_slicer.link_objects_to_slicer")
+
+            row = layout.row()
+            row.operator("link_slicer.unlink_objects_from_slicer")
+
+            row = layout.row()
+            row.operator("link_slicer.delete_objects_both")
+        
+
+        
+
+
         
         '''
         # Create an row where the buttons are aligned to each other.
@@ -566,13 +599,22 @@ class SlicerLinkPanel(bpy.types.Panel):
         '''
 
 def register():
+    #register host address, port input, state=NONE/CLIENT/SERVER
+    bpy.types.Scene.host_addr = bpy.props.StringProperty(name = "Host", description = "Enter the host PORT the server to listen on OR client to connect to.", default = asyncsock.address[0])
+    bpy.types.Scene.host_port = bpy.props.StringProperty(name = "Port", description = "Enter the host PORT the server to listen on OR client to connect to.", default = str(asyncsock.address[1]))
+    bpy.types.Scene.socket_state = bpy.props.StringProperty(name="socket_state", default="NONE")
+
     bpy.utils.register_class(SlicerAddonPreferences)
     bpy.utils.register_class(SlicerXMLExport)
     bpy.utils.register_class(SlicerPLYExport)
     bpy.utils.register_class(SelectedtoSlicerGroup)
     bpy.utils.register_class(StopSlicerLink)
-    bpy.utils.register_class(StartSlicerLink)
+    bpy.utils.register_class(StartSlicerLinkServer)
+    bpy.utils.register_class(StartSlicerLinkClient)
     bpy.utils.register_class(SlicerLinkPanel)
+    bpy.utils.register_class(linkObjectsToSlicer)
+    bpy.utils.register_class(unlinkObjectsFromSlicer)
+    bpy.utils.register_class(deleteObjectsBoth)
     
     bpy.app.handlers.load_post.append(cleanup_temp_dir)
     #bpy.utils.register_manual_map(SlicerXMLExport)
@@ -580,11 +622,17 @@ def register():
     
 
 def unregister():
+    del bpy.types.Scene.host_addr
+    del bpy.types.Scene.host_port
+    del bpy.types.Scene.socket_state
     bpy.utils.unregister_class(SlicerXMLExport)
     bpy.utils.unregister_class(SlicerXMLExport)
     bpy.utils.unregister_class(SlicerPLYExport)
     bpy.utils.unregister_class(SelectedtoSlicerGroup)
     bpy.utils.unregister_class(SlicerLinkPanel)
+    bpy.utils.unregister_class(linkObjectsToSlicer)
+    bpy.utils.unregister_class(unlinkObjectsFromSlicer)
+    bpy.utils.unregister_class(deleteObjectsBoth)
     
     handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
     if "export_to_slicer" in handlers:

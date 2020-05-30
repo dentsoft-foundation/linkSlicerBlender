@@ -6,8 +6,6 @@ from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree
 from xml.etree import ElementTree as ET
 import re
 
-from concurrent.futures import ProcessPoolExecutor
-
 #http://codeprogress.com/python/libraries/pyqt/showPyQTExample.php?index=419&key=QFileSystemWatcherDirChange&version=4
 #http://stackoverflow.com/questions/32097163/pyqt-qfilesystemwatcher-doesnt-capture-the-file-added
 #http://codereview.stackexchange.com/questions/104555/directory-watcher-and-notifier-for-files-added-or-removed
@@ -57,38 +55,25 @@ class BlenderMonitorWidget:
             self.parent.show()
 
         self.watching = False
-        #self.file_monitor = None  #don't monitor until told to
-        #self._initialContent = []
         self.sock = None
-
-        self.process_executor = ProcessPoolExecutor(max_workers=1)
-            
-        #self.timer = qt.QTimer()
-        #self.timer.setInterval(1000)
-        #self.timer.connect('timeout()', self.onTimerEvent)
-        #self.timer_count = 0
-    
-        #TODO adjustabel refresh rate
-        #TODO start button
-        #TODO stop button and cleanup timer
-        
+        self.SlicerSelectedModelsList = []
         
     def setup(self):
         # Instantiate and connect widgets ...
         
         # Collapsible button
         sampleCollapsibleButton = ctk.ctkCollapsibleButton()
-        sampleCollapsibleButton.text = "Directory to Monitor"
+        sampleCollapsibleButton.text = "Configuration:"
         self.layout.addWidget(sampleCollapsibleButton)
 
         # Layout within the sample collapsible button
-        sampleFormLayout = qt.QFormLayout(sampleCollapsibleButton)
+        self.sampleFormLayout = qt.QFormLayout(sampleCollapsibleButton)
 
         #directory selector
         self.outputDirSelector = ctk.ctkPathLineEdit()
         self.outputDirSelector.filters = ctk.ctkPathLineEdit.Dirs
         self.outputDirSelector.settingKey = 'BlenderMonitorDir'
-        sampleFormLayout.addRow("Blender tmp directory:", self.outputDirSelector)
+        self.sampleFormLayout.addRow("tmp dir:", self.outputDirSelector)
         
         if not self.outputDirSelector.currentPath:
             self_dir = os.path.dirname(os.path.abspath(__file__))
@@ -100,68 +85,49 @@ class BlenderMonitorWidget:
                 
             self.outputDirSelector.setCurrentPath(defaultOutputPath)
             
-        # Play button
-        playButton = qt.QPushButton("Start")
-        playButton.toolTip = "Start Monitoring Directory."
+        self.host_address = qt.QLineEdit()
+        self.host_address.setText(str(asyncsock.address[0]))
+        self.sampleFormLayout.addRow("Host:", self.host_address)
+        
+        self.host_port = qt.QLineEdit()
+        self.host_port.setText(str(asyncsock.address[1]))
+        self.sampleFormLayout.addRow("Port:", self.host_port)
+
+        # connect button
+        playButton = qt.QPushButton("Connect")
+        playButton.toolTip = "Connect to configured server."
         playButton.checkable = True
-        sampleFormLayout.addRow(playButton)
+        self.sampleFormLayout.addRow(playButton)
         playButton.connect('toggled(bool)', self.onPlayButtonToggled)
         self.playButton = playButton
+
+        #Models list
+        addModelButton = qt.QPushButton("Add Model")
+        addModelButton.toolTip = "Add a model to the list to sync with Blender."
+        self.sampleFormLayout.addRow(addModelButton)
+        addModelButton.connect('clicked()', self.onaddModelButtonToggled)
         
+        """
         #Report Window           
         self.text_report = qt.QTextEdit()
         self.text_report.setText('Report file changes here')
-        sampleFormLayout.addRow('Dir Status:', self.text_report)
-        # HelloWorld button
-        #helloWorldButton = qt.QPushButton("Import Blender")
-        #helloWorldButton.toolTip = "Print 'Hello world' in standard ouput."
-        #sampleFormLayout.addWidget(helloWorldButton)
-        #helloWorldButton.connect('clicked(bool)', self.onHelloWorldButtonClicked)
-    
-        # Add vertical spacer
-        #self.layout.addStretch(1)
+        self.sampleFormLayout.addRow('Dir Status:', self.text_report)
+        """
 
-        # Set local var as instance attribute
-        #self.helloWorldButton = helloWorldButton
+    def onaddModelButtonToggled(self):
+        modelNodeSelector = slicer.qMRMLNodeComboBox()
+        modelNodeSelector.objectName = 'modelNodeSelector'
+        modelNodeSelector.toolTip = "Select a model."
+        modelNodeSelector.nodeTypes = ['vtkMRMLModelNode']
+        modelNodeSelector.noneEnabled = True
+        modelNodeSelector.addEnabled = True
+        modelNodeSelector.removeEnabled = True
+        modelNodeSelector.connect('currentNodeChanged(bool)', self.send_model_to_blender)
+        self.sampleFormLayout.addRow("Sync Model:", modelNodeSelector)
+        self.parent.connect('mrmlSceneChanged(vtkMRMLScene*)', modelNodeSelector, 'setMRMLScene(vtkMRMLScene*)')
+        modelNodeSelector.setMRMLScene(slicer.mrmlScene)
+        self.SlicerSelectedModelsList.append(modelNodeSelector)
 
-        
-    """ 
-     
-    def slotDirChanged(self, path):
-        newContent = ''.join(xor(os.listdir(path), self._initialContent))
-
-        #careful not to create an infinite or do loop
-        if 'update.txt' in newContent and 'update.txt' in self._initialContent:
-            
-            print('update in new and initial content...?')
-            print('why havent I update yet?')
-            print('did I just remove update.txt')
-            print(os.listdir(path))
-            return
-        
-        elif 'update.txt' in newContent and 'update.txt' not in self._initialContent:
-            update_file = os.path.join(path, 'update.txt')
-            
-            #read any xml file, and do what is neeeded
-            self.update_scene() #event driver
-            
-            #delete the update signal
-            os.remove(update_file)
-            
-        elif 'closed.txt' in newContent and 'closed.txt' not in self._initialContent:
-            self.text_report.setText("Blender file has changed!  Link has been disconnected")
-        
-        self._initialContent = os.listdir(path)
-        msg = ""
-        if newContent not in self._initialContent:
-            msg = "removed: %s" % newContent
-        else:
-            msg = "added: %s" %  newContent
-        self.text_report.setText("Detected Directory Change!! \n %s" % msg)
-    
-    def connectSignals(self):
-        self.file_monitor.directoryChanged.connect(self.slotDirChanged)
-    """      
     def update_scene(self, xml):
         if not self.watching: return
         
@@ -176,16 +142,7 @@ class BlenderMonitorWidget:
             print('this script is located here')
             print(self_dir)
             return
-        """
-        #scene_file = os.path.join(tmp_dir, "blend_to_slicer.xml")
-        #print(scene_file)
-        if not os.path.exists(scene_file):
-            print('NO XML FILE IN THE TEMP DIRECOTRY')
-            print("Export scene from Blender")
-            print("it needs to be stored in the following directory")
-            print(tmp_dir)
-            return
-        """
+
         #my_file = open(scene_file)
         tree = ET.ElementTree(ET.fromstring(xml))
         x_scene = tree.getroot()
@@ -249,49 +206,16 @@ class BlenderMonitorWidget:
             #update object location in scene
             transform.SetAndObserveMatrixTransformToParent(my_matrix)
             
-
+    def send_model_to_blender(self):
+        pass
     
     def onPlayButtonToggled(self, checked):
         if checked:
             self.watching = True
             self.playButton.text = "Stop"
             if self.sock == None:
-                """
-                fileSysWatcher  = qt.QFileSystemWatcher()
-                fileSysWatcher.addPath(self.outputDirSelector.currentPath)
-                fileSysWatcher.addPath(self.outputDirSelector.currentPath.replace("\\","/")) 
-                self.file_monitor = fileSysWatcher
-                self.connectSignals()
-
-                self._initialContent = os.listdir(self.outputDirSelector.currentPath)
-                """
-                #try:
-
-                self.sock = asyncsock.SlicerComm.EchoClient(asyncsock.address[0], asyncsock.address[1], [("XML", self.update_scene), ("TEST", self.test)])
+                self.sock = asyncsock.SlicerComm.EchoClient(str(self.host_address.text), int(self.host_port.text), [("XML", self.update_scene)])
                 self.sock.send_data("TEST", 'bogus data from slicer!')
-                #asyncsock.SlicerComm.start()
-                #asyncsock.init_thread(asyncsock.start)
-                #self.process_executor.submit(asyncsock.start)
-                #except:
-                #    asyncsock.socket_obj = Server(asyncsock.address)
-                #    asyncsock.init_thread(asyncsock.start)
-                #    #asyncsock.start()
-                #    print("server started -> " + str(asyncsock.socket_obj.address))
-                #self.onHelloWorldButtonClicked()
-                
-                """
-                update_file = os.path.join(self.outputDirSelector.currentPath, 'update.txt')
-                if os.path.exists(update_file):
-                    #delete the update signal
-                    os.remove(update_file)
-                    self._initialContent = os.listdir(self.outputDirSelector.currentPath)
-                else:
-                    print('Unable to delete update file because it does not exist?')
-                    print(update_file)
-                    print(os.listdir(self.outputDirSelector.currentPath))
-                #TODO, import models and what not?
-                #TODO, update outputDirSelctor.currentPath if needed
-                """
         else:
             self.watching = False
             self.playButton.text = "Start"
@@ -302,8 +226,5 @@ class BlenderMonitorWidget:
     def frameDelaySliderValueChanged(self, newValue):
         #print "frameDelaySliderValueChanged:", newValue
         self.timer.interval = newValue
-
-    def test (self, data):
-        self.sock.send_data("TEST","BOGUS PACKET DATA from Slicer!!!")
 
 
