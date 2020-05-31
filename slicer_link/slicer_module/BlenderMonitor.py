@@ -252,22 +252,6 @@ class BlenderMonitorWidget:
                 
         return xml_mx
 
-    def arrayFromVTKMatrix(self, vmatrix):
-        """Return vtkMatrix4x4 or vtkMatrix3x3 elements as numpy array.
-        The returned array is just a copy and so any modification in the array will not affect the input matrix.
-        To set VTK matrix from a numpy array, use :py:meth:`vtkMatrixFromArray` or
-        :py:meth:`updateVTKMatrixFromArray`.
-        """
-        if isinstance(vmatrix, vtk.vtkMatrix4x4):
-            matrixSize = 4
-        elif isinstance(vmatrix, vtk.vtkMatrix3x3):
-            matrixSize = 3
-        else:
-            raise RuntimeError("Input must be vtk.vtkMatrix3x3 or vtk.vtkMatrix4x4")
-        narray = np.eye(matrixSize)
-        vmatrix.DeepCopy(narray.ravel(), vmatrix)
-        return narray.tolist()
-
     def build_xml_scene(self):
         '''
         obs - list of slicer objects
@@ -301,7 +285,7 @@ class BlenderMonitorWidget:
                 
 
                 my_matrix = transform.GetMatrixTransformFromParent()
-                xmlmx = self.matrix_to_xml_element(self.arrayFromVTKMatrix(my_matrix))
+                xmlmx = self.matrix_to_xml_element(slicer.util.arrayFromVTKMatrix(my_matrix))
                 xob.extend([xmlmx])
                         
         return x_scene
