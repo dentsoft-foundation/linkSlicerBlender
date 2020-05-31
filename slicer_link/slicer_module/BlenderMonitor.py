@@ -300,33 +300,56 @@ class BlenderMonitorWidget:
                         
         return x_scene
 
-    def PLYexport(self, modelNode):
-        #modelNode = getNode(model)
-        plyFilePath = self.outputDirSelector.currentPath + "\\" + modelNode.GetName() + ".ply"
-        print (plyFilePath)
-        modelDisplayNode = modelNode.GetDisplayNode()
-        triangles = vtk.vtkTriangleFilter()
-        triangles.SetInputConnection(modelDisplayNode.GetOutputPolyDataConnection())
+    def import_obj_from_blender(self, data):
+        def mkVtkIdList(it):
+            vil = vtk.vtkIdList()
+            for i in it:
+                vil.InsertNextId(int(i))
+            return vil
+        #print(data)
+        obj, xml = data.split("_XML_DATA_")
+        obj_points, obj_polys = obj.split("_POLYS_")
+        obj_points = eval(obj_points)
+        obj_polys = eval(obj_polys)
+        blender_faces = []
+        offset = 0 #unflatten the list from blender
+        while ( offset < len(obj_polys)):
+            vertices_per_face = obj_polys[offset]
+            offset += 1
+            vertex_indices = obj_polys[offset : offset + vertices_per_face]
+            blender_faces.append(vertex_indices)
+            offset += vertices_per_face
 
-        plyWriter = vtk.vtkPLYWriter()
-        plyWriter.SetInputConnection(triangles.GetOutputPort())
-        lut = vtk.vtkLookupTable()
-        #lut.DeepCopy(modelDisplayNode.GetColorNode().GetLookupTable())
-        lut.SetRange(modelDisplayNode.GetScalarRange())
-        plyWriter.SetLookupTable(lut)
-        plyWriter.SetArrayName(modelDisplayNode.GetActiveScalarName())
+        tree = ET.ElementTree(ET.fromstring(xml))
+        x_scene = tree.getroot()
 
-        plyWriter.SetFileName(plyFilePath)
-        plyWriter.Write()
-        #plyWriter.Close() #does the write release/close/free automatically?
-        #return modelNode
+        mesh = vtk.vtkPolyData()
+        points = vtk.vtkPoints()
+        polys = vtk.vtkCellArray()
+        #print(blender_faces)
+        for i in range(len(obj_points)):
+            points.InsertPoint(i, obj_points[i])
+        for i in range(len(blender_faces)):
+            polys.InsertNextCell(mkVtkIdList(blender_faces[i]))
+        mesh.SetPoints(points)
+        mesh.SetPolys(polys)
+
+        # Create model node and add to scene
+        modelNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLModelNode')
+        modelNode.SetName(x_scene[0].get('name')) #only expecting one obj in the xml, since sent w/ OBJ together
+        modelNode.SetAndObservePolyData(mesh)
+        modelNode.CreateDefaultDisplayNodes()
+        #modelNode.GetDisplayNode().SetSliceIntersectionVisibility(True)
+        #modelNode.GetDisplayNode().SetSliceIntersectionThickness(3)
+
+        #TODO: apply the incoming xml matrix data to the newly imported object right away, dont wait for the event from blender
 
     def onPlayButtonToggled(self, checked):
         if checked:
             self.watching = True
             self.playButton.text = "Stop"
             if self.sock == None:
-                self.sock = asyncsock.SlicerComm.EchoClient(str(self.host_address.text), int(self.host_port.text), [("XML", self.update_scene)])
+                self.sock = asyncsock.SlicerComm.EchoClient(str(self.host_address.text), int(self.host_port.text), [("XML", self.update_scene), ("OBJ", self.import_obj_from_blender)])
                 self.sock.send_data("TEST", 'bogus data from slicer!')
         else:
             self.watching = False

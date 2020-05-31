@@ -62,7 +62,8 @@ class SlicerComm():
             print(data)
             self.received_data.append(data)
             for i in range(0, len(self.received_data)):
-                self.received_data[i] = self.received_data[i].data().decode()
+                try: self.received_data[i] = self.received_data[i].data().decode()
+                except: pass
             data = ''.join(self.received_data)
             if packet_terminator in data:
                 self._process_data()

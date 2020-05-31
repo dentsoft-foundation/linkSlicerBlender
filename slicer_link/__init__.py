@@ -466,8 +466,8 @@ class linkObjectsToSlicer(bpy.types.Operator):
     
     def execute(self,context):
         if asyncsock.socket_obj is not None:
-            test()
-            """
+            #test()
+            
             handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
             if "export_to_slicer" not in handlers:
                 bpy.app.handlers.depsgraph_update_post.append(export_to_slicer) 
@@ -486,20 +486,27 @@ class linkObjectsToSlicer(bpy.types.Operator):
                 if not me:
                     continue
 
-                #obj_verts = [v[0] for v in me.vertices]
-                #me.vertices.foreach_get('co', obj_verts)
-                #obj_poly = [v[0] for v in me.polygons]
-                #me.polygons.foreach_get('co', obj_poly)
-                #write an xml file with new info about objects
-                #obs = [ob for ob in sg.objects]
+                obj_verts = [list(v.co) for v in me.vertices]
+                tot_verts = len(obj_verts[0])
+                obj_poly = []
+                for poly in me.polygons:
+                    obj_poly.append(tot_verts)
+                    for v in poly.vertices:
+                        obj_poly.append(v)
                 x_scene = build_xml_scene([ob])
             
                 xml_str = tostring(x_scene).decode() #, encoding='unicode', method='xml')
                 packet = "%s_POLYS_%s_XML_DATA_%s"%(obj_verts, obj_poly, xml_str)
-                print(packet)
-                #asyncsock.socket_obj.sock_handler[0].send_data("OBJ", xml_str)
+                asyncsock.socket_obj.sock_handler[0].send_data("OBJ", packet)
                 ob.to_mesh_clear()
-            """
+
+                if ob.name in sg.objects:
+                    continue
+                else:
+                    sg.objects.link(ob)
+
+            write_ob_transforms_to_cache(sg.objects)
+            
         return {'FINISHED'}
 
 class unlinkObjectsFromSlicer(bpy.types.Operator):
