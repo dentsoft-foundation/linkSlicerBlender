@@ -1,7 +1,7 @@
 '''
 Created on Mar 2, 2017
 
-@author: Patrick
+@author: Patrick, Georgi
 '''
 '''
 https://pymotw.com/2/xml/etree/ElementTree/create.html
@@ -20,7 +20,7 @@ http://blender.stackexchange.com/questions/14202/index-out-of-range-for-uilist-c
 '''
 bl_info = {
     "name": "Blender Scene to Slicer",
-    "author": "Patrick R. Moore",
+    "author": "Patrick R. Moore, Georgi Talmazov",
     "version": (1, 1),
     "blender": (2, 80, 0),
     "location": "File > Export > Slicer (.xml)",
@@ -41,7 +41,7 @@ import bpy
 #XML
 from xml.etree import ElementTree as ET
 from xml.dom import minidom
-from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree, tostring
+from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree, tostring, fromstring
 
 #Blender
 from bpy.types import Operator, AddonPreferences
@@ -229,7 +229,78 @@ def cleanup_temp_dir(dummy):
     close_file = open(closed,'wb')
     close_file.close()
 """
-    
+def import_obj_from_slicer(data):
+    obj, xml = data.split("_XML_DATA_")
+    obj = eval(obj)
+    handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
+    if "export_to_slicer" not in handlers:
+        bpy.app.handlers.depsgraph_update_post.append(export_to_slicer) 
+    if "SlicerLink" not in bpy.data.collections:
+        sg = bpy.data.collections.new('SlicerLink')
+    else:
+        sg = bpy.data.collections['SlicerLink']
+    #sg = bpy.data.collections['SlicerLink']
+    tree = ElementTree(fromstring(xml))
+    x_scene = tree.getroot()
+    #we are expecting one object from slicer, so no need to iterate the XML object tree
+    new_mesh = bpy.data.meshes.new(x_scene[0].get('name')+"_data")
+    new_mesh.from_pydata(obj, [], [])
+    new_mesh.update()
+    new_object = bpy.data.objects.new(x_scene[0].get('name'), new_mesh)
+    new_object.data = new_mesh
+    scene = bpy.context.scene
+    bpy.context.scene.collection.objects.link(new_object)
+
+    sg.objects.link(new_object)
+    write_ob_transforms_to_cache(sg.objects)
+    #new_object.data.transform(matrix)
+    #new_object.data.update()
+
+
+
+def import_from_slicer(xml):
+    addons = bpy.context.preferences.addons
+    settings = addons['slicer_link'].preferences
+    #bpy.types.Scene.overwrite = False
+    #bpy.ops.object.slicergroup("INVOKE_DEFAULT")
+    if "SlicerLink" not in bpy.data.collections:
+        sg = bpy.data.collections.new('SlicerLink')
+    else:
+        sg = bpy.data.collections['SlicerLink']
+    #sg = bpy.data.collections['SlicerLink']
+    tree = ElementTree(fromstring(xml))
+    x_scene = tree.getroot()
+    for b_ob in x_scene:
+        #get the name of object
+        name = b_ob.get('name')
+        if name not in [ob.name for ob in sg.objects]:
+            print("importing " + name)
+            print(str(settings.tmp_dir + "\\" + name + ".ply"))
+            #time.sleep(5)
+            #bpy.types.Scene.PLY_file = str(settings.tmp_dir + "\\" + name + ".ply")
+            #bpy.ops.object.import_ply("INVOKE_DEFAULT")
+            #time.sleep(10)
+            #sg.objects.link(bpy.data.objects[name])
+            
+            # create 4 verts, string them together to make 4 edges.
+            coord1 = (-1.0, 1.0, 0.0)
+            coord2 = (-1.0, -1.0, 0.0)
+            coord3 = (1.0, -1.0, 0.0)
+            coord4 = (1.0, 1.0, 0.0)
+
+            Verts = [coord1, coord2, coord3, coord4]
+            Edges = [[0,1],[1,2],[2,3],[3,0]]
+
+            profile_mesh = bpy.data.meshes.new("Base_Profile_Data")
+            profile_mesh.from_pydata(Verts, Edges, [])
+            profile_mesh.update()
+
+            profile_object = bpy.data.objects.new("Base_Profile", profile_mesh)
+            profile_object.data = profile_mesh  # this line is redundant .. it simply overwrites .data
+
+            scene = bpy.context.scene
+            bpy.context.scene.collection.objects.link(profile_object)
+
 @persistent
 def export_to_slicer(scene):
     
@@ -243,11 +314,13 @@ def export_to_slicer(scene):
     #safety, need the directory to exist
     if not os.path.exists(settings.tmp_dir): return
     
+    """
     #limit refresh rate to keep blender smooth    
     now = time.time()
     if now - __m.last_update < .2: return #TODO time limit
-    __m.last_update = time.time()    
-
+    __m.last_update = time.time()
+    """
+    
     #update the transform cache
     for ob_name in changed:
         if ob_name not in bpy.data.objects: continue
@@ -288,6 +361,22 @@ def build_xml_scene(obs):
     
     return x_scene
                  
+'''
+class importPLY(bpy.types.Operator):
+    """
+    Add selected objects to the SlicerLink group or
+    replace the SlicerLing group with selected objects
+    """
+    bl_idname = "object.import_ply"
+    bl_label = "Slicer import"
+    
+    def execute(self,context):
+        print(bpy.types.Scene.PLY_file)
+        if bpy.types.Scene.PLY_file is not "":
+            bpy.ops.import_mesh.ply(filepath=bpy.types.Scene.PLY_file)
+            bpy.types.Scene.PLY_file = ""
+'''
+
 class SelectedtoSlicerGroup(bpy.types.Operator):
     """
     Add selected objects to the SlicerLink group or
@@ -295,8 +384,6 @@ class SelectedtoSlicerGroup(bpy.types.Operator):
     """
     bl_idname = "object.slicergroup"
     bl_label = "Slicer Group"
-    
-    overwrite = bpy.props.BoolProperty(name = "Overwrite", default = True, description = "If False, will add objects, if True, will replace entire group with selection")
     
     def execute(self,context):
         
@@ -306,7 +393,7 @@ class SelectedtoSlicerGroup(bpy.types.Operator):
         else:
             sg = bpy.data.collections['SlicerLink']
           
-        if self.overwrite:
+        if bpy.types.Scene.overwrite:
             for ob in sg.objects:
                 sg.objects.unlink(ob)
                 
@@ -420,7 +507,7 @@ class StartSlicerLinkServer(bpy.types.Operator):
     
     def execute(self,context):
         if asyncsock.socket_obj == None:
-            asyncsock.socket_obj = asyncsock.BlenderComm.EchoServer(context.scene.host_addr, int(context.scene.host_port))
+            asyncsock.socket_obj = asyncsock.BlenderComm.EchoServer(context.scene.host_addr, int(context.scene.host_port), [("OBJ", import_obj_from_slicer)])
             asyncsock.thread = asyncsock.BlenderComm.init_thread(asyncsock.BlenderComm.start)
             context.scene.socket_state = "SERVER"
             print("server started -> ")
@@ -604,6 +691,10 @@ def register():
     bpy.types.Scene.host_port = bpy.props.StringProperty(name = "Port", description = "Enter the host PORT the server to listen on OR client to connect to.", default = str(asyncsock.address[1]))
     bpy.types.Scene.socket_state = bpy.props.StringProperty(name="socket_state", default="NONE")
 
+    bpy.types.Scene.overwrite = bpy.props.BoolProperty(name = "Overwrite", default = True, description = "If False, will add objects, if True, will replace entire group with selection")
+
+    #bpy.types.Scene.PLY_file = bpy.props.StringProperty(name="ply_to_import", default ="") #not elegant but might work
+
     bpy.utils.register_class(SlicerAddonPreferences)
     bpy.utils.register_class(SlicerXMLExport)
     bpy.utils.register_class(SlicerPLYExport)
@@ -615,8 +706,10 @@ def register():
     bpy.utils.register_class(linkObjectsToSlicer)
     bpy.utils.register_class(unlinkObjectsFromSlicer)
     bpy.utils.register_class(deleteObjectsBoth)
+
+    #bpy.utils.register_class(importPLY)
     
-    bpy.app.handlers.load_post.append(cleanup_temp_dir)
+    #bpy.app.handlers.load_post.append(cleanup_temp_dir)
     #bpy.utils.register_manual_map(SlicerXMLExport)
     #bpy.utils.register_manual_map(SlicerPLYExport)
     
@@ -625,6 +718,7 @@ def unregister():
     del bpy.types.Scene.host_addr
     del bpy.types.Scene.host_port
     del bpy.types.Scene.socket_state
+    del bpy.types.Scene.overwrite
     bpy.utils.unregister_class(SlicerXMLExport)
     bpy.utils.unregister_class(SlicerXMLExport)
     bpy.utils.unregister_class(SlicerPLYExport)
@@ -633,13 +727,18 @@ def unregister():
     bpy.utils.unregister_class(linkObjectsToSlicer)
     bpy.utils.unregister_class(unlinkObjectsFromSlicer)
     bpy.utils.unregister_class(deleteObjectsBoth)
+
+    #bpy.utils.unregister_class(importPLY)
+    
     
     handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
     if "export_to_slicer" in handlers:
-        bpy.app.handlers.depsgraph_update_post.remove(export_to_slicer) 
+        bpy.app.handlers.depsgraph_update_post.remove(export_to_slicer)
+    """
     handlers = [hand.__name__ for hand in bpy.app.handlers.load_post]
     if "cleanup_temp_dir" in handlers:
         bpy.app.handlers.load_post.remove(cleanup_temp_dir)
+    """
     #bpy.utils.unregister_manual_map(SlicerXMLExport)
     #bpy.utils.unregister_manual_map(SlicerPLYExport)
     

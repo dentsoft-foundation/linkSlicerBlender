@@ -1,3 +1,9 @@
+"""
+@author: Georgi Talmazov
+
+"""
+
+
 # REFERENCES:
 # https://pymotw.com/2/asynchat/
 # tuple unpacking https://stackoverflow.com/questions/1993727/expanding-tuples-into-arguments
@@ -151,10 +157,9 @@ class BlenderComm():
             self.received_data = [] #socket buffer
             self.write_buffer = ""
             self.connected = False
-            self.cmd_ops = {"TERM" : [self.handle_close,[]]}
+            self.cmd_ops_client = {"TERM" : [self.handle_close,[]]}
             if cmd_handle is not None: 
-                for CMD, handler in handle:
-                    self.cmd_ops[CMD] = handler
+                self.cmd_ops_client.update(cmd_handle)
 
         def handle_connect(self):
             self.connected = True
@@ -184,8 +189,8 @@ class BlenderComm():
             data = data.split(' net_packet: ')
             #print(data)
             self.received_data = [] #empty buffer
-            if data[0] in self.cmd_ops: self.cmd_ops[data[0]](data[1]) #call stored function, pass stored arguments from tuple
-            elif data[0] in self.cmd_ops and len(data) > 2: self.cmd_ops[data[0]][0](data[1], *self.cmd_ops[data[0]][1])
+            if data[0] in self.cmd_ops_client: self.cmd_ops_client[data[0]](data[1]) #call stored function, pass stored arguments from tuple
+            elif data[0] in self.cmd_ops_client and len(data) > 2: self.cmd_ops_client[data[0]][0](data[1], *self.cmd_ops_client[data[0]][1])
             else: pass
 
         def send_data(self, cmd, data):
@@ -200,12 +205,15 @@ class BlenderComm():
             self.bind((host, port))
             self.listen(5) #max number of connected clients
             self.sock_handler = []
-            self.cmd_handle = cmd_handle
+            self.cmd_ops = {}
+            if cmd_handle is not None: 
+                for CMD, handler in cmd_handle:
+                    self.cmd_ops[CMD] = handler
 
         def handle_accepted(self, sock, addr):
             print('Incoming connection from %s' % repr(addr))
             self.sock_handler.append(BlenderComm.EchoHandler(sock))
-            self.sock_handler[0].init(self.cmd_handle)
+            self.sock_handler[0].init(self.cmd_ops)
             self.sock_handler[0].connected = True
 
         def stop_server(self, socket_obj):

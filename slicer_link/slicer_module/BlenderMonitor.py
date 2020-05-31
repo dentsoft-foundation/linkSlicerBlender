@@ -1,10 +1,16 @@
+"""
+@author: Patrick R. Moore, Georgi Talmazov
+
+"""
+
 from __main__ import vtk, qt, ctk, slicer
 
 import os
 from xml.dom import minidom
-from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree
+from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree, tostring
 from xml.etree import ElementTree as ET
 import re
+import numpy as np
 
 #http://codeprogress.com/python/libraries/pyqt/showPyQTExample.php?index=419&key=QFileSystemWatcherDirChange&version=4
 #http://stackoverflow.com/questions/32097163/pyqt-qfilesystemwatcher-doesnt-capture-the-file-added
@@ -30,7 +36,7 @@ class BlenderMonitor:
         parent.title = "Blender Monitor"
         parent.categories = ["Examples"]
         parent.dependencies = []
-        parent.contributors = ["Patrick Moore"] # replace with "Firstname Lastname (Org)"
+        parent.contributors = ["Patrick Moore", "Georgi Talmazov (Dental Software Foundation)"] # replace with "Firstname Lastname (Org)"
         parent.helpText = """
         Example of scripted loadable extension for the HelloPython tutorial that monitors a directory for file changes.
         """
@@ -57,6 +63,7 @@ class BlenderMonitorWidget:
         self.watching = False
         self.sock = None
         self.SlicerSelectedModelsList = []
+        #self.toSync = []
         
     def setup(self):
         # Instantiate and connect widgets ...
@@ -122,11 +129,22 @@ class BlenderMonitorWidget:
         modelNodeSelector.noneEnabled = True
         modelNodeSelector.addEnabled = True
         modelNodeSelector.removeEnabled = True
-        modelNodeSelector.connect('currentNodeChanged(bool)', self.send_model_to_blender)
-        self.sampleFormLayout.addRow("Sync Model:", modelNodeSelector)
+        modelNodeSelector.connect('currentNodeChanged(vtkMRMLNode*)', self.send_model_to_blender)
+        self.sampleFormLayout.addRow("Link Model:", modelNodeSelector)
+
+        #model delete button
+        ModelDeleteButton = qt.QPushButton("Unlink Model")
+        ModelDeleteButton.toolTip = "Unlink selected model from blender."
+        ModelDeleteButton.checkable = True
+        self.sampleFormLayout.addRow(ModelDeleteButton)
+        ModelDeleteButton.connect('toggled(bool)', self.onModelDeleteToggled)
+
         self.parent.connect('mrmlSceneChanged(vtkMRMLScene*)', modelNodeSelector, 'setMRMLScene(vtkMRMLScene*)')
         modelNodeSelector.setMRMLScene(slicer.mrmlScene)
         self.SlicerSelectedModelsList.append(modelNodeSelector)
+        
+    def onModelDeleteToggled(self):
+        pass
 
     def update_scene(self, xml):
         if not self.watching: return
@@ -206,9 +224,109 @@ class BlenderMonitorWidget:
             #update object location in scene
             transform.SetAndObserveMatrixTransformToParent(my_matrix)
             
-    def send_model_to_blender(self):
-        pass
-    
+    def send_model_to_blender(self, modelNodeSelector):
+        if not self.SlicerSelectedModelsList == []:
+            modelNode = modelNodeSelector #.currentNode()
+            modelNode.CreateDefaultDisplayNodes()
+            #str_list = ""
+            #for row in slicer.util.arrayFromModelPoints(modelNode):
+            #    str_list += ", ".join(row)
+            #    str_list = "[" + str_list + "], "
+            #model_bytes_str = "[" + str_list + "]"
+            model_bytes_str = str(slicer.util.arrayFromModelPoints(modelNode).tolist())
+            xml_str = "%s_XML_DATA_%s"%(model_bytes_str, tostring(self.build_xml_scene()).decode())
+            packet = model_bytes_str + xml_str
+            self.sock.send_data("OBJ", xml_str)
+
+    def matrix_to_xml_element(self, mx):
+        nrow = len(mx)
+        ncol = len(mx[0])
+        
+        xml_mx = Element('matrix')
+        
+        for i in range(0,nrow):
+            xml_row = SubElement(xml_mx, 'row')
+            for j in range(0,ncol):
+                mx_entry = SubElement(xml_row, 'entry')
+                mx_entry.text = str(mx[i][j])
+                
+        return xml_mx
+
+    def arrayFromVTKMatrix(self, vmatrix):
+        """Return vtkMatrix4x4 or vtkMatrix3x3 elements as numpy array.
+        The returned array is just a copy and so any modification in the array will not affect the input matrix.
+        To set VTK matrix from a numpy array, use :py:meth:`vtkMatrixFromArray` or
+        :py:meth:`updateVTKMatrixFromArray`.
+        """
+        if isinstance(vmatrix, vtk.vtkMatrix4x4):
+            matrixSize = 4
+        elif isinstance(vmatrix, vtk.vtkMatrix3x3):
+            matrixSize = 3
+        else:
+            raise RuntimeError("Input must be vtk.vtkMatrix3x3 or vtk.vtkMatrix4x4")
+        narray = np.eye(matrixSize)
+        vmatrix.DeepCopy(narray.ravel(), vmatrix)
+        return narray.tolist()
+
+    def build_xml_scene(self):
+        '''
+        obs - list of slicer objects
+        file - filepath to write the xml
+        builds the XML scene of all object in self.SlicerSelectedModelsList
+        '''
+            
+        x_scene = Element('scene')
+
+        s_scene = slicer.mrmlScene
+        for model in self.SlicerSelectedModelsList:
+            if model.currentNode() is not None:
+                #print(model.currentNode())
+                #name = model.currentNode().GetName()
+                #try to get transform node
+                try:
+                    transform = slicer.util.getNode(model.currentNode().GetName()+'_trans')
+                except slicer.util.MRMLNodeNotFoundException:
+                    transform = None
+                    
+                if not transform:
+                    transform = slicer.vtkMRMLTransformNode()
+                    transform.SetName(model.currentNode().GetName()+'_trans')        
+                    s_scene.AddNode(transform)
+                model.currentNode().SetAndObserveTransformNodeID(transform.GetID())
+
+                #self.PLYexport(model.currentNode())
+
+                xob = SubElement(x_scene, 'b_object')
+                xob.set('name', model.currentNode().GetName())
+                
+
+                my_matrix = transform.GetMatrixTransformFromParent()
+                xmlmx = self.matrix_to_xml_element(self.arrayFromVTKMatrix(my_matrix))
+                xob.extend([xmlmx])
+                        
+        return x_scene
+
+    def PLYexport(self, modelNode):
+        #modelNode = getNode(model)
+        plyFilePath = self.outputDirSelector.currentPath + "\\" + modelNode.GetName() + ".ply"
+        print (plyFilePath)
+        modelDisplayNode = modelNode.GetDisplayNode()
+        triangles = vtk.vtkTriangleFilter()
+        triangles.SetInputConnection(modelDisplayNode.GetOutputPolyDataConnection())
+
+        plyWriter = vtk.vtkPLYWriter()
+        plyWriter.SetInputConnection(triangles.GetOutputPort())
+        lut = vtk.vtkLookupTable()
+        #lut.DeepCopy(modelDisplayNode.GetColorNode().GetLookupTable())
+        lut.SetRange(modelDisplayNode.GetScalarRange())
+        plyWriter.SetLookupTable(lut)
+        plyWriter.SetArrayName(modelDisplayNode.GetActiveScalarName())
+
+        plyWriter.SetFileName(plyFilePath)
+        plyWriter.Write()
+        #plyWriter.Close() #does the write release/close/free automatically?
+        #return modelNode
+
     def onPlayButtonToggled(self, checked):
         if checked:
             self.watching = True
