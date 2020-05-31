@@ -107,26 +107,8 @@ def test():
     obs = [ob for ob in sg.objects]
     x_scene = build_xml_scene(obs)
     
-    """
-    xml_file_name = os.path.join(settings.tmp_dir, "blend_to_slicer.xml")
-    
-    if not os.path.exists(xml_file_name):
-        my_file = open(xml_file_name, 'xb')
-    else:
-        my_file = open(xml_file_name,'wb')
-    
-    ElementTree(x_scene).write(my_file)
-    my_file.close()
-    """
     xml_str = tostring(x_scene).decode() #, encoding='unicode', method='xml')
     asyncsock.socket_obj.sock_handler[0].send_data("XML", xml_str)
-    """
-    #send signal for slicer to update.  #TODO, send signal with socket
-    update_file_name = os.path.join(settings.tmp_dir, 'update.txt')
-    new_file = open(update_file_name, mode='xb')
-    new_file.write('Update Slicer please'.encode())
-    new_file.close()
-    """
 
 #Preferences
 class SlicerAddonPreferences(AddonPreferences):
@@ -231,7 +213,17 @@ def cleanup_temp_dir(dummy):
 """
 def import_obj_from_slicer(data):
     obj, xml = data.split("_XML_DATA_")
-    obj = eval(obj)
+    obj_points, obj_polys = obj.split("_POLYS_")
+    obj_points = eval(obj_points)
+    obj_polys = eval(obj_polys)
+    blender_faces = []
+    offset = 0 #unflatten the list from slicer
+    while ( offset < len(obj_polys)):
+        vertices_per_face = obj_polys[offset]
+        offset += 1
+        vertex_indices = obj_polys[offset : offset + vertices_per_face]
+        blender_faces.append(vertex_indices)
+        offset += vertices_per_face
     handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
     if "export_to_slicer" not in handlers:
         bpy.app.handlers.depsgraph_update_post.append(export_to_slicer) 
@@ -244,7 +236,7 @@ def import_obj_from_slicer(data):
     x_scene = tree.getroot()
     #we are expecting one object from slicer, so no need to iterate the XML object tree
     new_mesh = bpy.data.meshes.new(x_scene[0].get('name')+"_data")
-    new_mesh.from_pydata(obj, [], [])
+    new_mesh.from_pydata(obj_points, [], blender_faces)
     new_mesh.update()
     new_object = bpy.data.objects.new(x_scene[0].get('name'), new_mesh)
     new_object.data = new_mesh
@@ -257,50 +249,6 @@ def import_obj_from_slicer(data):
     #new_object.data.update()
 
 
-
-def import_from_slicer(xml):
-    addons = bpy.context.preferences.addons
-    settings = addons['slicer_link'].preferences
-    #bpy.types.Scene.overwrite = False
-    #bpy.ops.object.slicergroup("INVOKE_DEFAULT")
-    if "SlicerLink" not in bpy.data.collections:
-        sg = bpy.data.collections.new('SlicerLink')
-    else:
-        sg = bpy.data.collections['SlicerLink']
-    #sg = bpy.data.collections['SlicerLink']
-    tree = ElementTree(fromstring(xml))
-    x_scene = tree.getroot()
-    for b_ob in x_scene:
-        #get the name of object
-        name = b_ob.get('name')
-        if name not in [ob.name for ob in sg.objects]:
-            print("importing " + name)
-            print(str(settings.tmp_dir + "\\" + name + ".ply"))
-            #time.sleep(5)
-            #bpy.types.Scene.PLY_file = str(settings.tmp_dir + "\\" + name + ".ply")
-            #bpy.ops.object.import_ply("INVOKE_DEFAULT")
-            #time.sleep(10)
-            #sg.objects.link(bpy.data.objects[name])
-            
-            # create 4 verts, string them together to make 4 edges.
-            coord1 = (-1.0, 1.0, 0.0)
-            coord2 = (-1.0, -1.0, 0.0)
-            coord3 = (1.0, -1.0, 0.0)
-            coord4 = (1.0, 1.0, 0.0)
-
-            Verts = [coord1, coord2, coord3, coord4]
-            Edges = [[0,1],[1,2],[2,3],[3,0]]
-
-            profile_mesh = bpy.data.meshes.new("Base_Profile_Data")
-            profile_mesh.from_pydata(Verts, Edges, [])
-            profile_mesh.update()
-
-            profile_object = bpy.data.objects.new("Base_Profile", profile_mesh)
-            profile_object.data = profile_mesh  # this line is redundant .. it simply overwrites .data
-
-            scene = bpy.context.scene
-            bpy.context.scene.collection.objects.link(profile_object)
-
 @persistent
 def export_to_slicer(scene):
     
@@ -310,9 +258,6 @@ def export_to_slicer(scene):
     #check for changes
     changed = detect_transforms()
     if changed == None: return  #TODO, more complex scene monitoring
-    
-    #safety, need the directory to exist
-    if not os.path.exists(settings.tmp_dir): return
     
     """
     #limit refresh rate to keep blender smooth    
@@ -360,22 +305,6 @@ def build_xml_scene(obs):
             xob.extend([xmlmat])
     
     return x_scene
-                 
-'''
-class importPLY(bpy.types.Operator):
-    """
-    Add selected objects to the SlicerLink group or
-    replace the SlicerLing group with selected objects
-    """
-    bl_idname = "object.import_ply"
-    bl_label = "Slicer import"
-    
-    def execute(self,context):
-        print(bpy.types.Scene.PLY_file)
-        if bpy.types.Scene.PLY_file is not "":
-            bpy.ops.import_mesh.ply(filepath=bpy.types.Scene.PLY_file)
-            bpy.types.Scene.PLY_file = ""
-'''
 
 class SelectedtoSlicerGroup(bpy.types.Operator):
     """
@@ -538,6 +467,39 @@ class linkObjectsToSlicer(bpy.types.Operator):
     def execute(self,context):
         if asyncsock.socket_obj is not None:
             test()
+            """
+            handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
+            if "export_to_slicer" not in handlers:
+                bpy.app.handlers.depsgraph_update_post.append(export_to_slicer) 
+                            
+            if "SlicerLink" not in bpy.data.collections:
+                sg = bpy.data.collections.new('SlicerLink')
+            else:
+                sg = bpy.data.collections['SlicerLink']
+
+            for ob in bpy.context.selected_objects: #[TODO] object group managment 
+                #slicer does not like . in ob names
+                if "." in ob.name:
+                    ob.name.replace(".","_")
+                
+                me = ob.to_mesh(preserve_all_data_layers=False, depsgraph=None)
+                if not me:
+                    continue
+
+                #obj_verts = [v[0] for v in me.vertices]
+                #me.vertices.foreach_get('co', obj_verts)
+                #obj_poly = [v[0] for v in me.polygons]
+                #me.polygons.foreach_get('co', obj_poly)
+                #write an xml file with new info about objects
+                #obs = [ob for ob in sg.objects]
+                x_scene = build_xml_scene([ob])
+            
+                xml_str = tostring(x_scene).decode() #, encoding='unicode', method='xml')
+                packet = "%s_POLYS_%s_XML_DATA_%s"%(obj_verts, obj_poly, xml_str)
+                print(packet)
+                #asyncsock.socket_obj.sock_handler[0].send_data("OBJ", xml_str)
+                ob.to_mesh_clear()
+            """
         return {'FINISHED'}
 
 class unlinkObjectsFromSlicer(bpy.types.Operator):

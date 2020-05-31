@@ -228,15 +228,25 @@ class BlenderMonitorWidget:
         if not self.SlicerSelectedModelsList == []:
             modelNode = modelNodeSelector #.currentNode()
             modelNode.CreateDefaultDisplayNodes()
-            #str_list = ""
-            #for row in slicer.util.arrayFromModelPoints(modelNode):
-            #    str_list += ", ".join(row)
-            #    str_list = "[" + str_list + "], "
-            #model_bytes_str = "[" + str_list + "]"
-            model_bytes_str = str(slicer.util.arrayFromModelPoints(modelNode).tolist())
-            xml_str = "%s_XML_DATA_%s"%(model_bytes_str, tostring(self.build_xml_scene()).decode())
-            packet = model_bytes_str + xml_str
-            self.sock.send_data("OBJ", xml_str)
+            model_points = str(slicer.util.arrayFromModelPoints(modelNode).tolist())
+            model_polys = str(self.arrayFromModelPolys(modelNode).tolist())
+            packet = "%s_POLYS_%s_XML_DATA_%s"%(model_points, model_polys, tostring(self.build_xml_scene()).decode())
+            #print(model_polys)
+            #print(packet)
+            self.sock.send_data("OBJ", packet)
+
+    def arrayFromModelPolys(self, modelNode):
+        """Return point positions of a model node as numpy array.
+        Point coordinates can be modified by modifying the numpy array.
+        After all modifications has been completed, call :py:meth:`arrayFromModelPointsModified`.
+        .. warning:: Important: memory area of the returned array is managed by VTK,
+            therefore values in the array may be changed, but the array must not be reallocated.
+            See :py:meth:`arrayFromVolume` for details.
+        """
+        #import vtk.util.numpy_support
+        pointData = modelNode.GetPolyData().GetPolys().GetData()
+        narray = vtk.util.numpy_support.vtk_to_numpy(pointData)
+        return narray
 
     def matrix_to_xml_element(self, mx):
         nrow = len(mx)
