@@ -75,22 +75,6 @@ class BlenderMonitorWidget:
 
         # Layout within the sample collapsible button
         self.sampleFormLayout = qt.QFormLayout(sampleCollapsibleButton)
-
-        #directory selector
-        self.outputDirSelector = ctk.ctkPathLineEdit()
-        self.outputDirSelector.filters = ctk.ctkPathLineEdit.Dirs
-        self.outputDirSelector.settingKey = 'BlenderMonitorDir'
-        self.sampleFormLayout.addRow("tmp dir:", self.outputDirSelector)
-        
-        if not self.outputDirSelector.currentPath:
-            self_dir = os.path.dirname(os.path.abspath(__file__))
-            defaultOutputPath = os.path.join(self_dir, "tmp")
-                       
-            if not os.path.exists(defaultOutputPath):
-                print(defaultOutputPath)                  
-                defaultOutputPath = slicer.app.defaultScenePath
-                
-            self.outputDirSelector.setCurrentPath(defaultOutputPath)
             
         self.host_address = qt.QLineEdit()
         self.host_address.setText(str(asyncsock.address[0]))
@@ -129,7 +113,7 @@ class BlenderMonitorWidget:
         modelNodeSelector.noneEnabled = True
         modelNodeSelector.addEnabled = True
         modelNodeSelector.removeEnabled = True
-        modelNodeSelector.connect('currentNodeChanged(vtkMRMLNode*)', self.send_model_to_blender)
+        modelNodeSelector.connect('currentNodeChanged(vtkMRMLNode*)', self.obj_check_send)
         self.sampleFormLayout.addRow("Link Model:", modelNodeSelector)
 
         #model delete button
@@ -148,59 +132,24 @@ class BlenderMonitorWidget:
 
     def update_scene(self, xml):
         if not self.watching: return
-        
-        #find the temp directory
-        self_dir = os.path.dirname(os.path.abspath(__file__))
-        tmp_dir = os.path.join(self_dir, "tmp")
-        
-        if not os.path.exists(tmp_dir):
-            print('there is no temporary directory')
-            print('there needs to be a folder named "tmp"')
-            print('it should be in same folder with this script')
-            print('this script is located here')
-            print(self_dir)
-            return
 
-        #my_file = open(scene_file)
         tree = ET.ElementTree(ET.fromstring(xml))
         x_scene = tree.getroot()
-        #my_file.close()
         
         s_scene = slicer.mrmlScene
         #scene = slicer.mrmlScene
         for b_ob in x_scene:
             #get the name of blender object
             name = b_ob.get('name')
-        
-            #check if there is the same sicer model in the scene
+                    
+            
+            xml_mx = b_ob.find('matrix')
             try:
                 slicer_model = slicer.util.getNode(name)
             except slicer.util.MRMLNodeNotFoundException:
                 slicer_model = None
             
-            if not slicer_model:                
-                ob_file = os.path.join(tmp_dir, name + ".ply")
-                if os.path.exists(ob_file):
-                    print(name + ' loading model from .ply')
-                    ret = slicer.util.loadModel(ob_file)
-                    if not ret:
-                        print('could not load the ply model')
-                    slicer_model = slicer.util.getNode(name)
-                    if not slicer_model: continue
-                    
-                    disp_node = slicer_model.GetDisplayNode()
-                    disp_node.SetSliceIntersectionVisibility(True)
-                    disp_node.SetSliceIntersectionThickness(2)
-                    
-                    mat = b_ob.find('material')
-                    if mat is not None: 
-                        r, g, b = mat.find('r').text, mat.find('g').text, mat.find('b').text
-                        disp_node.SetColor(float(r),float(g),float(b))
-                else:
-                    continue
-            
-            xml_mx = b_ob.find('matrix')
-            
+            #if not slicer_model:
             #try to get transform node
             try:
                 transform = slicer.util.getNode(name+'_trans')
@@ -223,7 +172,33 @@ class BlenderMonitorWidget:
         
             #update object location in scene
             transform.SetAndObserveMatrixTransformToParent(my_matrix)
+
+            #disp_node = slicer_model.GetDisplayNode()
+            #disp_node.SetSliceIntersectionVisibility(True)
+            #disp_node.SetSliceIntersectionThickness(2)
             
+    def obj_check_handle(self, data):
+        status, obj_name = data.split("_BREAK_")
+        if status == "MISSING":
+            self.send_model_to_blender(slicer.util.getNode(obj_name))
+        elif status == "NOT LINKED":
+            self.sock.send_data("CHECK", "LINK_BREAK_" + obj_name)
+        elif status == "LINKED":
+            print("object already linked:" + obj_name)
+        elif status == "STATUS":
+            try:
+                slicer.util.getNode(obj_name)
+                self.sock.send_data("CHECK", "LINK_BREAK_" + obj_name)
+            except slicer.util.MRMLNodeNotFoundException:
+                self.sock.send_data("CHECK", "MISSING_BREAK_" + obj_name)
+
+    def obj_check_send(self, modelNodeSelectorObj):
+        #modelNode = modelNodeSelectorObj
+        slicer.util.confirmOkCancelDisplay("Checking object.", "linkSlicerBlender Info:")
+
+        model_name = modelNodeSelectorObj.GetName()
+        self.sock.send_data("CHECK", "STATUS_BREAK_" + model_name)
+
     def send_model_to_blender(self, modelNodeSelector):
         if not self.SlicerSelectedModelsList == []:
             modelNode = modelNodeSelector #.currentNode()
@@ -233,6 +208,8 @@ class BlenderMonitorWidget:
             packet = "%s_POLYS_%s_XML_DATA_%s"%(model_points, model_polys, tostring(self.build_xml_scene()).decode())
             #print(model_polys)
             #print(packet)
+            slicer.util.confirmOkCancelDisplay("Sending object to Blender.", "linkSlicerBlender Info:")
+
             self.sock.send_data("OBJ", packet)
 
     def arrayFromModelPolys(self, modelNode):
@@ -301,6 +278,7 @@ class BlenderMonitorWidget:
         return x_scene
 
     def import_obj_from_blender(self, data):
+        slicer.util.confirmOkCancelDisplay("Received object from Blender.", "linkSlicerBlender Info:")
         def mkVtkIdList(it):
             vil = vtk.vtkIdList()
             for i in it:
@@ -349,8 +327,8 @@ class BlenderMonitorWidget:
             self.watching = True
             self.playButton.text = "Stop"
             if self.sock == None:
-                self.sock = asyncsock.SlicerComm.EchoClient(str(self.host_address.text), int(self.host_port.text), [("XML", self.update_scene), ("OBJ", self.import_obj_from_blender)])
-                self.sock.send_data("TEST", 'bogus data from slicer!')
+                self.sock = asyncsock.SlicerComm.EchoClient(str(self.host_address.text), int(self.host_port.text), [("XML", self.update_scene), ("OBJ", self.import_obj_from_blender), ("CHECK", self.obj_check_handle)])
+                #self.sock.send_data("TEST", 'bogus data from slicer!')
         else:
             self.watching = False
             self.playButton.text = "Start"

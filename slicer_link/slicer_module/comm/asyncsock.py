@@ -59,7 +59,7 @@ class SlicerComm():
 
         def handle_read(self):
             data = self.socket.readAll()
-            print(data)
+            #print(data)
             self.received_data.append(data)
             for i in range(0, len(self.received_data)):
                 try: self.received_data[i] = self.received_data[i].data().decode()
@@ -171,7 +171,7 @@ class BlenderComm():
 
         def handle_read(self):
             data = self.recv(8192)
-            print(data)
+            #print(data)
             #self.logger.debug('handle_read() -> %d bytes', len(data))
             self.received_data.append(data)
             for i in range(0, len(self.received_data)):
@@ -186,7 +186,7 @@ class BlenderComm():
             """We have the full ECHO command"""
             data = ''.join(self.received_data)
             data = data[:-len(packet_terminator)]
-            print(data)
+            #print(data)
             data = data.split(' net_packet: ')
             #print(data)
             self.received_data = [] #empty buffer

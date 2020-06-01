@@ -63,67 +63,6 @@ def get_settings():
         assert False, 'could not find non-"lib" folder'
     settings = addons[foldername].preferences
     return settings
-
-def test():
-    handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
-
-    if "export_to_slicer" not in handlers:
-        bpy.app.handlers.depsgraph_update_post.append(export_to_slicer) 
-    
-    addons = bpy.context.preferences.addons
-    settings = addons['slicer_link'].preferences
-    #safety, need the directory to exist
-    #if not os.path.exists(settings.tmp_dir): return {'FINISHED'} #TODO Error no tmp directory
-    
-    #if 'closed.txt' in os.listdir(settings.tmp_dir):
-    #    #send a message to slicer that the scene has changed
-    #    closed = os.path.join(settings.tmp_dir, 'closed.txt')
-    #    os.remove(closed)
-    
-    if "SlicerLink" not in bpy.data.collections: return {'FINISHED'} #TODO Error no group
-    sg = bpy.data.collections['SlicerLink']
-    for ob in sg.objects: #[TODO] object group managment
-        #slicer does not like . in ob names
-        if "." in ob.name:
-            ob.name.replace(".","_")
-            
-        temp_file = os.path.join(settings.tmp_dir, ob.name + ".ply")
-        if os.path.exists(temp_file):
-            print('overwriting')
-        
-        me = ob.to_mesh(preserve_all_data_layers=False, depsgraph=None)
-        if not me:
-            continue
-        
-        ret = export_ply.save_mesh(temp_file, me,
-                use_normals=False,
-                use_uv_coords=False,
-                use_colors=False,
-                )
-        #bpy.data.meshes.remove(me) # blender 2.7
-        ob.to_mesh_clear()
-    
-    #write an xml file with new info about objects
-    obs = [ob for ob in sg.objects]
-    x_scene = build_xml_scene(obs)
-    
-    xml_str = tostring(x_scene).decode() #, encoding='unicode', method='xml')
-    asyncsock.socket_obj.sock_handler[0].send_data("XML", xml_str)
-
-#Preferences
-class SlicerAddonPreferences(AddonPreferences):
-    # this must match the addon name, use '__package__'
-    # when defining this in a submodule of a python package.
-    bl_idname = __name__
-    self_dir = os.path.dirname(os.path.abspath(__file__))
-    tmp_dir = os.path.join(self_dir, "slicer_module","tmp")
-    tmpdir = bpy.props.StringProperty(name = "Temp Folder", default = tmp_dir, subtype = 'DIR_PATH')
-    
-    def draw(self,context):
-        
-        layout = self.layout
-        row = layout.row()
-        row.prop(self, "tmpdir")
         
 def prettify(elem):
     """Return a pretty-printed XML string for the Element.
@@ -190,28 +129,9 @@ def detect_transforms():
     if len(changed) == 0: return None
     return changed    
 
-"""
-#when closing file, delete temp dir contents
-@persistent
-def cleanup_temp_dir(dummy):
-    addons = bpy.context.preferences.addons
-    settings = addons['slicer_link'].preferences
-    #safety, need the directory to exist
-    if not os.path.exists(settings.tmp_dir): return
-    
-    files = os.listdir(settings.tmp_dir)
-    
-    #cleanup everything
-    for f in files:
-        to_rem = os.path.join(settings.tmp_dir, f)
-        os.remove(to_rem)
-    
-    #send a message to slicer that the scene has changed
-    closed = os.path.join(settings.tmp_dir, 'closed.txt')
-    close_file = open(closed,'wb')
-    close_file.close()
-"""
 def import_obj_from_slicer(data):
+    #ShowMessageBox("Received object from Slicer.", "linkSlicerBlender Info:")
+
     obj, xml = data.split("_XML_DATA_")
     obj_points, obj_polys = obj.split("_POLYS_")
     obj_points = eval(obj_points)
@@ -248,6 +168,95 @@ def import_obj_from_slicer(data):
     #new_object.data.transform(matrix)
     #new_object.data.update()
 
+def send_obj_to_slicer(objects = []):
+    if asyncsock.socket_obj is not None:
+        handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
+        if "export_to_slicer" not in handlers:
+            bpy.app.handlers.depsgraph_update_post.append(export_to_slicer) 
+                        
+        if "SlicerLink" not in bpy.data.collections:
+            sg = bpy.data.collections.new('SlicerLink')
+        else:
+            sg = bpy.data.collections['SlicerLink']
+
+        for ob in objects: #[TODO] object group managment 
+            ob = bpy.data.objects[ob]
+            #slicer does not like . in ob names
+            if "." in ob.name:
+                ob.name.replace(".","_")
+            
+            me = ob.to_mesh(preserve_all_data_layers=False, depsgraph=None)
+            if not me:
+                continue
+
+            obj_verts = [list(v.co) for v in me.vertices]
+            tot_verts = len(obj_verts[0])
+            obj_poly = []
+            for poly in me.polygons:
+                obj_poly.append(tot_verts)
+                for v in poly.vertices:
+                    obj_poly.append(v)
+            x_scene = build_xml_scene([ob])
+        
+            xml_str = tostring(x_scene).decode() #, encoding='unicode', method='xml')
+            packet = "%s_POLYS_%s_XML_DATA_%s"%(obj_verts, obj_poly, xml_str)
+
+            #ShowMessageBox("Sending object to Slicer.", "linkSlicerBlender Info:")
+
+            asyncsock.socket_obj.sock_handler[0].send_data("OBJ", packet)
+            ob.to_mesh_clear()
+
+            if ob.name in sg.objects:
+                continue
+            else:
+                sg.objects.link(ob)
+
+        write_ob_transforms_to_cache(sg.objects)
+
+def obj_check_handle(data):
+    status, obj_name = data.split("_BREAK_")
+    
+    #ShowMessageBox(status, "linkSlicerBlender Info:")
+
+    handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
+    if "export_to_slicer" not in handlers:
+        bpy.app.handlers.depsgraph_update_post.append(export_to_slicer) 
+                    
+    if "SlicerLink" not in bpy.data.collections:
+        sg = bpy.data.collections.new('SlicerLink')
+    else:
+        sg = bpy.data.collections['SlicerLink']
+    if status == "STATUS":
+        link_col_found = obj_name in bpy.data.collections['SlicerLink'].objects
+        b_obj_exist = obj_name in bpy.data.objects
+        if link_col_found == True and b_obj_exist == True:
+            asyncsock.socket_obj.sock_handler[0].send_data("CHECK", "LINKED_BREAK_" + obj_name)
+        elif link_col_found == False and b_obj_exist == True:
+            asyncsock.socket_obj.sock_handler[0].send_data("CHECK", "NOT LINKED_BREAK_" + obj_name)
+        elif link_col_found == False and b_obj_exist == False:
+            asyncsock.socket_obj.sock_handler[0].send_data("CHECK", "MISSING_BREAK_" + obj_name)
+    elif status == "LINK":
+        sg.objects.link(bpy.data.objects[obj_name])
+        write_ob_transforms_to_cache(sg.objects)
+    elif status == "MISSING":
+        send_obj_to_slicer([obj_name])
+
+
+def obj_check_send():
+    #ShowMessageBox("Checking object.", "linkSlicerBlender Info:")
+
+    handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
+    if "export_to_slicer" not in handlers:
+        bpy.app.handlers.depsgraph_update_post.append(export_to_slicer) 
+                    
+    if "SlicerLink" not in bpy.data.collections:
+        sg = bpy.data.collections.new('SlicerLink')
+    else:
+        sg = bpy.data.collections['SlicerLink']
+
+    for ob in bpy.context.selected_objects:
+        if ob.name not in bpy.data.collections['SlicerLink'].objects:
+            asyncsock.socket_obj.sock_handler[0].send_data("CHECK", "STATUS_BREAK_" + ob.name)
 
 @persistent
 def export_to_slicer(scene):
@@ -276,7 +285,6 @@ def export_to_slicer(scene):
     x_scene = build_xml_scene(obs)
     xml_str = tostring(x_scene).decode()
     asyncsock.socket_obj.sock_handler[0].send_data("XML", xml_str)
-
             
 def write_ob_transforms_to_cache(obs):
     __m.ob_names = []
@@ -339,93 +347,7 @@ class SelectedtoSlicerGroup(bpy.types.Operator):
         write_ob_transforms_to_cache(sg.objects)
         
         return {'FINISHED'}
-    
-    
-class SlicerPLYExport(bpy.types.Operator):
-    """
-    export selected objects mesh in local coords to
-    stanford PLY
-    """
-    bl_idname = "export.slicerply"
-    bl_label = "Export Slicer Ply"
-    
-    overwrite = bpy.props.BoolProperty(name = "Overwrite", default = True)
-    def execute(self,context):
-        #check tmp dir for exchange file
-        temp_dir = get_settings().tmpdir
-        if temp_dir == '' or not os.path.isdir(temp_dir):
-            self.report({'ERROR'}, 'Temp directory doesnt exist, set temp directory in addon preferences')
-            return {'CANCELLED'}
-        
-        #clean old ply files from tmp dir
-        for parent, dirnames, filenames in os.walk(temp_dir):
-            for fn in filenames:
-                if fn.lower().endswith('.ply'):
-                    os.remove(os.path.join(parent, fn))
-            
-        for ob in context.selected_objects: #[TODO] object group managments
-            #slicer does not like . in ob names
-            if "." in ob.name:
-                ob.name.replace(".","_")
-                
-            temp_file = os.path.join(temp_dir, ob.name + ".ply")
-            if os.path.exists(temp_file):
-                print('overwriting')
-            
-            me = ob.to_mesh(preserve_all_data_layers=False, depsgraph=None)
-            if not me:
-                continue
-            
-            ret = export_ply.save_mesh(temp_file, me,
-                    use_normals=False,
-                    use_uv_coords=False,
-                    use_colors=False,
-                    )
-            #bpy.data.meshes.remove(me) # blender 2.7
-            ob.to_mesh_clear()
-        
-            
-        return {'FINISHED'}
-            
-class SlicerXMLExport(bpy.types.Operator):
-    """
-    Export to the scene object names and transforms to XML
-    """
-    bl_idname = "export.slicerxml"
-    bl_label = "Export Slicer XML"
-    
-    def execute(self,context):
-        
-        x_scene = Element('scene')
-        
-        for ob in context.scene.objects:
-            xob = SubElement(x_scene, 'b_object')
-            xob.set('name', ob.name)
-            
-            xmlmx = matrix_to_xml_element(ob.matrix_world)
-            xob.extend([xmlmx])
-            
-            if len(ob.material_slots):
-                mat = ob.material_slots[0].material
-                xmlmat = material_to_xml_element(mat)
-                xob.extend([xmlmat])
-                print(prettify(xmlmat))
-                
-        #check tmp dir for exchange file
-        temp_dir = get_settings().tmpdir
-        if temp_dir == '' or not os.path.isdir(temp_dir):
-            self.report({'ERROR'}, 'Temp directory doesnt exist, set temp directory in addon preferences')
-            return {'CANCELLED'}
-        temp_file = os.path.join(temp_dir,"blend_to_slicer.xml")
-        if not os.path.exists(temp_file):
-            my_file = open(temp_file, 'xb')
-        else:
-            my_file = open(temp_file,'wb')
-        
-        ElementTree(x_scene).write(my_file)
-        my_file.close()
-        
-        return {'FINISHED'}
+
     
 class StartSlicerLinkServer(bpy.types.Operator):
     """
@@ -436,10 +358,10 @@ class StartSlicerLinkServer(bpy.types.Operator):
     
     def execute(self,context):
         if asyncsock.socket_obj == None:
-            asyncsock.socket_obj = asyncsock.BlenderComm.EchoServer(context.scene.host_addr, int(context.scene.host_port), [("OBJ", import_obj_from_slicer)])
+            asyncsock.socket_obj = asyncsock.BlenderComm.EchoServer(context.scene.host_addr, int(context.scene.host_port), [("OBJ", import_obj_from_slicer), ("CHECK", obj_check_handle)])
             asyncsock.thread = asyncsock.BlenderComm.init_thread(asyncsock.BlenderComm.start)
             context.scene.socket_state = "SERVER"
-            print("server started -> ")
+            ShowMessageBox("Server started.", "linkSlicerBlender Info:")
         return {'FINISHED'}
 
 class StartSlicerLinkClient(bpy.types.Operator):
@@ -465,48 +387,7 @@ class linkObjectsToSlicer(bpy.types.Operator):
     bl_label = "Link Object(s)"
     
     def execute(self,context):
-        if asyncsock.socket_obj is not None:
-            #test()
-            
-            handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
-            if "export_to_slicer" not in handlers:
-                bpy.app.handlers.depsgraph_update_post.append(export_to_slicer) 
-                            
-            if "SlicerLink" not in bpy.data.collections:
-                sg = bpy.data.collections.new('SlicerLink')
-            else:
-                sg = bpy.data.collections['SlicerLink']
-
-            for ob in bpy.context.selected_objects: #[TODO] object group managment 
-                #slicer does not like . in ob names
-                if "." in ob.name:
-                    ob.name.replace(".","_")
-                
-                me = ob.to_mesh(preserve_all_data_layers=False, depsgraph=None)
-                if not me:
-                    continue
-
-                obj_verts = [list(v.co) for v in me.vertices]
-                tot_verts = len(obj_verts[0])
-                obj_poly = []
-                for poly in me.polygons:
-                    obj_poly.append(tot_verts)
-                    for v in poly.vertices:
-                        obj_poly.append(v)
-                x_scene = build_xml_scene([ob])
-            
-                xml_str = tostring(x_scene).decode() #, encoding='unicode', method='xml')
-                packet = "%s_POLYS_%s_XML_DATA_%s"%(obj_verts, obj_poly, xml_str)
-                asyncsock.socket_obj.sock_handler[0].send_data("OBJ", packet)
-                ob.to_mesh_clear()
-
-                if ob.name in sg.objects:
-                    continue
-                else:
-                    sg.objects.link(ob)
-
-            write_ob_transforms_to_cache(sg.objects)
-            
+        obj_check_send()
         return {'FINISHED'}
 
 class unlinkObjectsFromSlicer(bpy.types.Operator):
@@ -654,6 +535,13 @@ class SlicerLinkPanel(bpy.types.Panel):
         row.operator("render.render")
         '''
 
+def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
+
+    def draw(self, context):
+        self.layout.label(text=message)
+
+    bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
+
 def register():
     #register host address, port input, state=NONE/CLIENT/SERVER
     bpy.types.Scene.host_addr = bpy.props.StringProperty(name = "Host", description = "Enter the host PORT the server to listen on OR client to connect to.", default = asyncsock.address[0])
@@ -662,11 +550,6 @@ def register():
 
     bpy.types.Scene.overwrite = bpy.props.BoolProperty(name = "Overwrite", default = True, description = "If False, will add objects, if True, will replace entire group with selection")
 
-    #bpy.types.Scene.PLY_file = bpy.props.StringProperty(name="ply_to_import", default ="") #not elegant but might work
-
-    bpy.utils.register_class(SlicerAddonPreferences)
-    bpy.utils.register_class(SlicerXMLExport)
-    bpy.utils.register_class(SlicerPLYExport)
     bpy.utils.register_class(SelectedtoSlicerGroup)
     bpy.utils.register_class(StopSlicerLink)
     bpy.utils.register_class(StartSlicerLinkServer)
@@ -675,12 +558,6 @@ def register():
     bpy.utils.register_class(linkObjectsToSlicer)
     bpy.utils.register_class(unlinkObjectsFromSlicer)
     bpy.utils.register_class(deleteObjectsBoth)
-
-    #bpy.utils.register_class(importPLY)
-    
-    #bpy.app.handlers.load_post.append(cleanup_temp_dir)
-    #bpy.utils.register_manual_map(SlicerXMLExport)
-    #bpy.utils.register_manual_map(SlicerPLYExport)
     
 
 def unregister():
@@ -688,17 +565,11 @@ def unregister():
     del bpy.types.Scene.host_port
     del bpy.types.Scene.socket_state
     del bpy.types.Scene.overwrite
-    bpy.utils.unregister_class(SlicerXMLExport)
-    bpy.utils.unregister_class(SlicerXMLExport)
-    bpy.utils.unregister_class(SlicerPLYExport)
     bpy.utils.unregister_class(SelectedtoSlicerGroup)
     bpy.utils.unregister_class(SlicerLinkPanel)
     bpy.utils.unregister_class(linkObjectsToSlicer)
     bpy.utils.unregister_class(unlinkObjectsFromSlicer)
-    bpy.utils.unregister_class(deleteObjectsBoth)
-
-    #bpy.utils.unregister_class(importPLY)
-    
+    bpy.utils.unregister_class(deleteObjectsBoth)    
     
     handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
     if "export_to_slicer" in handlers:
