@@ -240,7 +240,9 @@ def obj_check_handle(data):
         write_ob_transforms_to_cache(sg.objects)
     elif status == "MISSING":
         send_obj_to_slicer([obj_name])
-
+    elif status == "UNLINK":
+        sg.objects.unlink(bpy.data.objects[obj_name])
+        write_ob_transforms_to_cache(sg.objects)
 
 def obj_check_send():
     #ShowMessageBox("Checking object.", "linkSlicerBlender Info:")
@@ -398,7 +400,15 @@ class unlinkObjectsFromSlicer(bpy.types.Operator):
     bl_label = "Unlink Object(s)"
     
     def execute(self,context):
-        pass
+        if "SlicerLink" not in bpy.data.collections:
+            sg = bpy.data.collections.new('SlicerLink')
+        else:
+            sg = bpy.data.collections['SlicerLink']
+
+        for ob in bpy.context.selected_objects:
+            sg.objects.unlink(ob)
+            asyncsock.socket_obj.sock_handler[0].send_data("CHECK", "UNLINK_BREAK_" + ob.name)
+            write_ob_transforms_to_cache(sg.objects)
         return {'FINISHED'}
 
 class deleteObjectsBoth(bpy.types.Operator):
@@ -409,7 +419,17 @@ class deleteObjectsBoth(bpy.types.Operator):
     bl_label = "Delete Object(s)"
     
     def execute(self,context):
-        pass
+        if "SlicerLink" not in bpy.data.collections:
+            sg = bpy.data.collections.new('SlicerLink')
+        else:
+            sg = bpy.data.collections['SlicerLink']
+        for ob in bpy.context.selected_objects:
+            asyncsock.socket_obj.sock_handler[0].send_data("DEL", ob.name)
+            try: sg.objects.unlink(ob)
+            except: pass
+            ob.select_set(True)
+            bpy.ops.object.delete()
+            write_ob_transforms_to_cache(sg.objects)
         return {'FINISHED'}
             
     

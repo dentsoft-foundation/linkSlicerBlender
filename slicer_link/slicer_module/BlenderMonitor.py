@@ -97,15 +97,12 @@ class BlenderMonitorWidget:
         addModelButton.toolTip = "Add a model to the list to sync with Blender."
         self.sampleFormLayout.addRow(addModelButton)
         addModelButton.connect('clicked()', self.onaddModelButtonToggled)
-        
-        """
-        #Report Window           
-        self.text_report = qt.QTextEdit()
-        self.text_report.setText('Report file changes here')
-        self.sampleFormLayout.addRow('Dir Status:', self.text_report)
-        """
 
-    def onaddModelButtonToggled(self):
+    def onaddModelButtonToggled(self): #, select = None):
+        for model in self.SlicerSelectedModelsList:
+            if model[0] == None and model[2] == "NEW":
+                return
+        # https://python.hotexamples.com/examples/slicer/-/qMRMLNodeComboBox/python-qmrmlnodecombobox-function-examples.html
         modelNodeSelector = slicer.qMRMLNodeComboBox()
         modelNodeSelector.objectName = 'modelNodeSelector'
         modelNodeSelector.toolTip = "Select a model."
@@ -113,22 +110,16 @@ class BlenderMonitorWidget:
         modelNodeSelector.noneEnabled = True
         modelNodeSelector.addEnabled = True
         modelNodeSelector.removeEnabled = True
+        #if select is not None:
+        #    modelNodeSelector.currentNodeID = select
         modelNodeSelector.connect('currentNodeChanged(vtkMRMLNode*)', self.obj_check_send)
-        self.sampleFormLayout.addRow("Link Model:", modelNodeSelector)
-
-        #model delete button
-        ModelDeleteButton = qt.QPushButton("Unlink Model")
-        ModelDeleteButton.toolTip = "Unlink selected model from blender."
-        ModelDeleteButton.checkable = True
-        self.sampleFormLayout.addRow(ModelDeleteButton)
-        ModelDeleteButton.connect('toggled(bool)', self.onModelDeleteToggled)
+        self.sampleFormLayout.addRow(modelNodeSelector)
 
         self.parent.connect('mrmlSceneChanged(vtkMRMLScene*)', modelNodeSelector, 'setMRMLScene(vtkMRMLScene*)')
         modelNodeSelector.setMRMLScene(slicer.mrmlScene)
-        self.SlicerSelectedModelsList.append(modelNodeSelector)
         
-    def onModelDeleteToggled(self):
-        pass
+        self.SlicerSelectedModelsList.append([None , modelNodeSelector, "NEW"])
+        #print(self.SlicerSelectedModelsList)
 
     def update_scene(self, xml):
         if not self.watching: return
@@ -183,8 +174,15 @@ class BlenderMonitorWidget:
             self.send_model_to_blender(slicer.util.getNode(obj_name))
         elif status == "NOT LINKED":
             self.sock.send_data("CHECK", "LINK_BREAK_" + obj_name)
+            #self.onaddModelButtonToggled()
         elif status == "LINKED":
-            print("object already linked:" + obj_name)
+            slicer.util.confirmOkCancelDisplay("Object already linked.", "linkSlicerBlender Info:")
+        elif status == "UNLINK":
+            for model in self.SlicerSelectedModelsList:
+                if model[0] == obj_name:
+                    model[1].deleteLater()
+                    self.SlicerSelectedModelsList.remove(model)
+
         elif status == "STATUS":
             try:
                 slicer.util.getNode(obj_name)
@@ -194,10 +192,31 @@ class BlenderMonitorWidget:
 
     def obj_check_send(self, modelNodeSelectorObj):
         #modelNode = modelNodeSelectorObj
-        slicer.util.confirmOkCancelDisplay("Checking object.", "linkSlicerBlender Info:")
+        if modelNodeSelectorObj is not None:
+            for model in self.SlicerSelectedModelsList:
+                if model[0] == None and model[2] == "NEW":
+                    self.SlicerSelectedModelsList[self.SlicerSelectedModelsList.index(model)][0] = modelNodeSelectorObj.GetName()
+                    self.SlicerSelectedModelsList[self.SlicerSelectedModelsList.index(model)][2] = ""
 
-        model_name = modelNodeSelectorObj.GetName()
-        self.sock.send_data("CHECK", "STATUS_BREAK_" + model_name)
+            slicer.util.confirmOkCancelDisplay("Checking object.", "linkSlicerBlender Info:")
+
+            model_name = modelNodeSelectorObj.GetName()
+            self.sock.send_data("CHECK", "STATUS_BREAK_" + model_name)
+        else:
+            for model in self.SlicerSelectedModelsList:
+                if model[1].currentNode() == None and model[0] is not None:
+                    self.sock.send_data("CHECK", "UNLINK_BREAK_" + model[0])
+                    model[1].deleteLater()
+                    self.SlicerSelectedModelsList.remove(model)
+                    print(self.SlicerSelectedModelsList)
+                    return
+
+    def delete_model(self, obj_name):
+        for model in self.SlicerSelectedModelsList:
+            if model[0] == obj_name:
+                model[1].deleteLater()
+                self.SlicerSelectedModelsList.remove(model)
+        slicer.mrmlScene.RemoveNode(slicer.util.getNode(obj_name))
 
     def send_model_to_blender(self, modelNodeSelector):
         if not self.SlicerSelectedModelsList == []:
@@ -205,7 +224,7 @@ class BlenderMonitorWidget:
             modelNode.CreateDefaultDisplayNodes()
             model_points = str(slicer.util.arrayFromModelPoints(modelNode).tolist())
             model_polys = str(self.arrayFromModelPolys(modelNode).tolist())
-            packet = "%s_POLYS_%s_XML_DATA_%s"%(model_points, model_polys, tostring(self.build_xml_scene()).decode())
+            packet = "%s_POLYS_%s_XML_DATA_%s"%(model_points, model_polys, tostring(self.build_xml_scene(modelNode.GetName())).decode())
             #print(model_polys)
             #print(packet)
             slicer.util.confirmOkCancelDisplay("Sending object to Blender.", "linkSlicerBlender Info:")
@@ -239,7 +258,7 @@ class BlenderMonitorWidget:
                 
         return xml_mx
 
-    def build_xml_scene(self):
+    def build_xml_scene(self, nodeName):
         '''
         obs - list of slicer objects
         file - filepath to write the xml
@@ -249,31 +268,26 @@ class BlenderMonitorWidget:
         x_scene = Element('scene')
 
         s_scene = slicer.mrmlScene
-        for model in self.SlicerSelectedModelsList:
-            if model.currentNode() is not None:
-                #print(model.currentNode())
-                #name = model.currentNode().GetName()
-                #try to get transform node
-                try:
-                    transform = slicer.util.getNode(model.currentNode().GetName()+'_trans')
-                except slicer.util.MRMLNodeNotFoundException:
-                    transform = None
-                    
-                if not transform:
-                    transform = slicer.vtkMRMLTransformNode()
-                    transform.SetName(model.currentNode().GetName()+'_trans')        
-                    s_scene.AddNode(transform)
-                model.currentNode().SetAndObserveTransformNodeID(transform.GetID())
-
-                #self.PLYexport(model.currentNode())
-
-                xob = SubElement(x_scene, 'b_object')
-                xob.set('name', model.currentNode().GetName())
+        if slicer.util.getNode(nodeName) is not None:
+            model = slicer.util.getNode(nodeName)
+            try:
+                transform = slicer.util.getNode(model.GetName()+'_trans')
+            except slicer.util.MRMLNodeNotFoundException:
+                transform = None
                 
+            if not transform:
+                transform = slicer.vtkMRMLTransformNode()
+                transform.SetName(model.GetName()+'_trans')        
+                s_scene.AddNode(transform)
+            model.SetAndObserveTransformNodeID(transform.GetID())
 
-                my_matrix = transform.GetMatrixTransformFromParent()
-                xmlmx = self.matrix_to_xml_element(slicer.util.arrayFromVTKMatrix(my_matrix))
-                xob.extend([xmlmx])
+            xob = SubElement(x_scene, 'b_object')
+            xob.set('name', model.GetName())
+            
+
+            my_matrix = transform.GetMatrixTransformFromParent()
+            xmlmx = self.matrix_to_xml_element(slicer.util.arrayFromVTKMatrix(my_matrix))
+            xob.extend([xmlmx])
                         
         return x_scene
 
@@ -317,8 +331,10 @@ class BlenderMonitorWidget:
         modelNode.SetName(x_scene[0].get('name')) #only expecting one obj in the xml, since sent w/ OBJ together
         modelNode.SetAndObservePolyData(mesh)
         modelNode.CreateDefaultDisplayNodes()
-        #modelNode.GetDisplayNode().SetSliceIntersectionVisibility(True)
-        #modelNode.GetDisplayNode().SetSliceIntersectionThickness(3)
+        modelNode.GetDisplayNode().SetSliceIntersectionVisibility(True)
+        modelNode.GetDisplayNode().SetSliceIntersectionThickness(2)
+
+        #self.SlicerSelectedModelsList.append([modelNodeSelector.currentNode().GetName(), modelNodeSelector, ""])
 
         #TODO: apply the incoming xml matrix data to the newly imported object right away, dont wait for the event from blender
 
@@ -327,12 +343,13 @@ class BlenderMonitorWidget:
             self.watching = True
             self.playButton.text = "Stop"
             if self.sock == None:
-                self.sock = asyncsock.SlicerComm.EchoClient(str(self.host_address.text), int(self.host_port.text), [("XML", self.update_scene), ("OBJ", self.import_obj_from_blender), ("CHECK", self.obj_check_handle)])
+                self.sock = asyncsock.SlicerComm.EchoClient(str(self.host_address.text), int(self.host_port.text), [("XML", self.update_scene), ("OBJ", self.import_obj_from_blender), ("CHECK", self.obj_check_handle), ("DEL", self.delete_model)])
                 #self.sock.send_data("TEST", 'bogus data from slicer!')
         else:
             self.watching = False
             self.playButton.text = "Start"
             self.sock.handle_close()
+            self.sock = None
             
             #TODO
                 

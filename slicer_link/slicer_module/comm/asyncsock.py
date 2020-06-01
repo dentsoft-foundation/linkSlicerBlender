@@ -167,6 +167,7 @@ class BlenderComm():
 
         def handle_close(self):
             self.connected = False
+            #del socket_obj.sock_handler[self]
             self.close()
 
         def handle_read(self):
@@ -214,8 +215,8 @@ class BlenderComm():
         def handle_accepted(self, sock, addr):
             print('Incoming connection from %s' % repr(addr))
             self.sock_handler.append(BlenderComm.EchoHandler(sock))
-            self.sock_handler[0].init(self.cmd_ops)
-            self.sock_handler[0].connected = True
+            self.sock_handler[-1].init(self.cmd_ops)
+            self.sock_handler[-1].connected = True
 
         def stop_server(self, socket_obj):
             for connected_client in socket_obj.sock_handler:
