@@ -154,7 +154,8 @@ class BlenderComm():
 
     class EchoHandler(asyncore.dispatcher_with_send):
 
-        def init(self, cmd_handle = None):
+        def init(self, instance, cmd_handle = None):
+            self.instance = instance
             self.received_data = [] #socket buffer
             self.write_buffer = ""
             self.connected = False
@@ -167,8 +168,10 @@ class BlenderComm():
 
         def handle_close(self):
             self.connected = False
-            #del socket_obj.sock_handler[self]
             self.close()
+            for client in self.instance.sock_handler:
+                if client == self: del self.instance.sock_handler[self.instance.sock_handler.index(self)]
+            print("disconnected")
 
         def handle_read(self):
             data = self.recv(8192)
@@ -202,6 +205,7 @@ class BlenderComm():
 
         def __init__(self, host, port, cmd_handle = None):
             asyncore.dispatcher.__init__(self)
+            self.instance = self
             self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
             #self.set_reuse_addr()
             self.bind((host, port))
@@ -215,13 +219,14 @@ class BlenderComm():
         def handle_accepted(self, sock, addr):
             print('Incoming connection from %s' % repr(addr))
             self.sock_handler.append(BlenderComm.EchoHandler(sock))
-            self.sock_handler[-1].init(self.cmd_ops)
+            self.sock_handler[-1].init(self.instance, self.cmd_ops)
             self.sock_handler[-1].connected = True
 
         def stop_server(self, socket_obj):
             for connected_client in socket_obj.sock_handler:
                 connected_client.handle_close()
             self.close()
+            #socket_obj = None
             print("server stopped")
         
 

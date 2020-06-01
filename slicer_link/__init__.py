@@ -451,6 +451,7 @@ class StopSlicerLink(bpy.types.Operator):
 
         if context.scene.socket_state == "SERVER":
             asyncsock.socket_obj.stop_server(asyncsock.socket_obj)
+            asyncsock.socket_obj = None
             context.scene.socket_state = "NONE"
         elif context.scene.socket_state == "CLIENT":
             asyncsock.socket_obj.handle_close()
@@ -497,8 +498,8 @@ class SlicerLinkPanel(bpy.types.Panel):
             row = layout.row()
             row.label(text="Operators:")
 
-            row = layout.row()
-            row.operator("object.slicergroup")
+            #row = layout.row()
+            #row.operator("object.slicergroup")
 
             row = layout.row()
             row.operator("link_slicer.link_objects_to_slicer")
