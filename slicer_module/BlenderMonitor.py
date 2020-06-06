@@ -33,8 +33,8 @@ def xor(lst1, lst2):
 
 class BlenderMonitor:
     def __init__(self, parent):
-        parent.title = "Blender Monitor"
-        parent.categories = ["Examples"]
+        parent.title = "linkSlicerBlender"
+        parent.categories = ["Dentistry"]
         parent.dependencies = []
         parent.contributors = ["Patrick Moore", "Georgi Talmazov (Dental Software Foundation)"] # replace with "Firstname Lastname (Org)"
         parent.helpText = """
@@ -139,6 +139,7 @@ class BlenderMonitorWidget:
                 slicer_model = slicer.util.getNode(name)
             except slicer.util.MRMLNodeNotFoundException:
                 slicer_model = None
+                return
             
             #if not slicer_model:
             #try to get transform node
@@ -163,6 +164,10 @@ class BlenderMonitorWidget:
         
             #update object location in scene
             transform.SetAndObserveMatrixTransformToParent(my_matrix)
+
+            #permanently apply transform - does not seem to work in live mode
+            #logic = slicer.vtkSlicerTransformLogic()
+            #logic.hardenTransform(slicer_model)
 
             #disp_node = slicer_model.GetDisplayNode()
             #disp_node.SetSliceIntersectionVisibility(True)
@@ -333,6 +338,9 @@ class BlenderMonitorWidget:
         modelNode.CreateDefaultDisplayNodes()
         modelNode.GetDisplayNode().SetSliceIntersectionVisibility(True)
         modelNode.GetDisplayNode().SetSliceIntersectionThickness(2)
+
+        #update object location in scene
+        self.update_scene(xml)
 
         #self.SlicerSelectedModelsList.append([modelNodeSelector.currentNode().GetName(), modelNodeSelector, ""])
 

@@ -47,6 +47,7 @@ from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree, tos
 from bpy.types import Operator, AddonPreferences
 from bpy.app.handlers import persistent
 from io_mesh_ply import export_ply
+#import atexit
 
 #TCP sock lib
 from .slicer_module import comm as asyncsock
@@ -361,7 +362,7 @@ class StartSlicerLinkServer(bpy.types.Operator):
     def execute(self,context):
         if asyncsock.socket_obj == None:
             asyncsock.socket_obj = asyncsock.BlenderComm.EchoServer(context.scene.host_addr, int(context.scene.host_port), [("OBJ", import_obj_from_slicer), ("CHECK", obj_check_handle)])
-            asyncsock.thread = asyncsock.BlenderComm.init_thread(asyncsock.BlenderComm.start)
+            asyncsock.thread = asyncsock.BlenderComm.init_thread(asyncsock.BlenderComm.start, asyncsock.socket_obj)
             context.scene.socket_state = "SERVER"
             ShowMessageBox("Server started.", "linkSlicerBlender Info:")
         return {'FINISHED'}
@@ -451,6 +452,7 @@ class StopSlicerLink(bpy.types.Operator):
 
         if context.scene.socket_state == "SERVER":
             asyncsock.socket_obj.stop_server(asyncsock.socket_obj)
+            asyncsock.BlenderComm.stop_thread(asyncsock.thread)
             asyncsock.socket_obj = None
             context.scene.socket_state = "NONE"
         elif context.scene.socket_state == "CLIENT":
@@ -509,52 +511,6 @@ class SlicerLinkPanel(bpy.types.Panel):
 
             row = layout.row()
             row.operator("link_slicer.delete_objects_both")
-        
-
-        
-
-
-        
-        '''
-        # Create an row where the buttons are aligned to each other.
-        layout.label(text=" Aligned Row:")
-
-        row = layout.row(align=True)
-        row.prop(scene, "frame_start")
-        row.prop(scene, "frame_end")
-
-        # Create two columns, by using a split layout.
-        split = layout.split()
-
-        # First column
-        col = split.column()
-        col.label(text="Column One:")
-        col.prop(scene, "frame_end")
-        col.prop(scene, "frame_start")
-
-        # Second column, aligned
-        col = split.column(align=True)
-        col.label(text="Column Two:")
-        col.prop(scene, "frame_start")
-        col.prop(scene, "frame_end")
-
-        # Big render button
-        layout.label(text="Big Button:")
-        row = layout.row()
-        row.scale_y = 3.0
-        row.operator("render.render")
-
-        # Different sizes in a row
-        layout.label(text="Different button sizes:")
-        row = layout.row(align=True)
-        row.operator("render.render")
-
-        sub = row.row()
-        sub.scale_x = 2.0
-        sub.operator("render.render")
-
-        row.operator("render.render")
-        '''
 
 def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
 
@@ -581,20 +537,25 @@ def register():
     bpy.utils.register_class(deleteObjectsBoth)
     
 
-def unregister():
+def unregister():    
     del bpy.types.Scene.host_addr
     del bpy.types.Scene.host_port
     del bpy.types.Scene.socket_state
     del bpy.types.Scene.overwrite
     bpy.utils.unregister_class(SelectedtoSlicerGroup)
+    bpy.utils.unregister_class(StopSlicerLink)
+    bpy.utils.unregister_class(StartSlicerLinkServer)
+    bpy.utils.unregister_class(StartSlicerLinkClient)
     bpy.utils.unregister_class(SlicerLinkPanel)
     bpy.utils.unregister_class(linkObjectsToSlicer)
     bpy.utils.unregister_class(unlinkObjectsFromSlicer)
     bpy.utils.unregister_class(deleteObjectsBoth)    
     
+    
     handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]
     if "export_to_slicer" in handlers:
         bpy.app.handlers.depsgraph_update_post.remove(export_to_slicer)
+
     """
     handlers = [hand.__name__ for hand in bpy.app.handlers.load_post]
     if "cleanup_temp_dir" in handlers:

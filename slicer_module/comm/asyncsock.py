@@ -87,17 +87,37 @@ class SlicerComm():
 
 class BlenderComm():
 
-    def start():
-        asyncore.loop()
+    #blender_main_thread = None
 
-    def init_thread(run):
+    def start():
+        try:
+            asyncore.loop()
+        except asyncore.ExitNow as e:
+            #print(e)
+            pass
+        #asyncore.loop()
+
+    def init_thread(server_instance, socket_obj):
+        blender_thread = threading.current_thread()
         new_thread = threading.Thread()
-        new_thread.run = run
+        new_thread.run = server_instance
         new_thread.start()
+        check_thread = threading.Thread(target=BlenderComm.check_main_thread, args=(blender_thread, new_thread, socket_obj,))
+        check_thread.start()
         return new_thread
     
-    def stop_thread(self, my_thread):
+    def stop_thread(my_thread):
         my_thread.join()
+        #raise asyncore.ExitNow('Server is quitting!')
+        
+    def check_main_thread (main_thread, server_thread, socket_obj):
+        while main_thread.is_alive() and server_thread.is_alive():
+            time.sleep(5)
+        socket_obj.stop_server(socket_obj)
+        BlenderComm.stop_thread(server_thread)
+        exit()
+            
+
 
 
     class EchoClient(asyncore.dispatcher):
@@ -170,7 +190,9 @@ class BlenderComm():
             self.connected = False
             self.close()
             for client in self.instance.sock_handler:
-                if client == self: del self.instance.sock_handler[self.instance.sock_handler.index(self)]
+                if client == self:
+                    del self.instance.sock_handler[self.instance.sock_handler.index(self)]
+                    print("client instance deleted")
             print("disconnected")
 
         def handle_read(self):
