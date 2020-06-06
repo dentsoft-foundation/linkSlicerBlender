@@ -19,15 +19,15 @@ http://blender.stackexchange.com/questions/14202/index-out-of-range-for-uilist-c
 
 '''
 bl_info = {
-    "name": "Blender Scene to Slicer",
+    "name": "linkSlicerBlender",
     "author": "Patrick R. Moore, Georgi Talmazov",
-    "version": (1, 1),
+    "version": (2, 0),
     "blender": (2, 80, 0),
-    "location": "File > Export > Slicer (.xml)",
-    "description": "Adds a new Mesh Object",
+    "location": "3D View -> UI SIDE PANEL",
+    "description": "Blender and 3D Slicer sync add-on.",
     "warning": "",
     "wiki_url": "",
-    "category": "Import Export",
+    "category": "Dental",
     }
 #python
 import os

@@ -300,7 +300,7 @@ class BlenderMonitorWidget:
         return x_scene
 
     def import_obj_from_blender(self, data):
-        slicer.util.confirmOkCancelDisplay("Received object from Blender.", "linkSlicerBlender Info:")
+        slicer.util.confirmOkCancelDisplay("Received object(s) from Blender.", "linkSlicerBlender Info:")
         def mkVtkIdList(it):
             vil = vtk.vtkIdList()
             for i in it:
