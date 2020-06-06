@@ -375,6 +375,8 @@ class StartSlicerLinkClient(bpy.types.Operator):
     bl_label = "Client"
     
     def execute(self,context):
+        ShowMessageBox("Client not yet available.", "linkSlicerBlender Info:")
+        return {'FINISHED'}
         if asyncsock.socket_obj == None:
             asyncsock.socket_obj = asyncsock.BlenderComm.EchoClient(context.scene.host_addr, int(context.scene.host_port))
             asyncsock.thread = asyncsock.BlenderComm.init_thread(asyncsock.BlenderComm.start)

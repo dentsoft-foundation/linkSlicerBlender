@@ -124,7 +124,10 @@ class BlenderMonitorWidget:
     def update_scene(self, xml):
         if not self.watching: return
 
-        tree = ET.ElementTree(ET.fromstring(xml))
+        try: #any better ideas??
+            tree = ET.ElementTree(ET.fromstring(xml))
+        except:
+            return
         x_scene = tree.getroot()
         
         s_scene = slicer.mrmlScene
