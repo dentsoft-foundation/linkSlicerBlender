@@ -238,11 +238,14 @@ class BlenderMonitorWidget:
                     return
 
     def delete_model(self, obj_name):
+        obj_name = obj_name.split(",")
         for model in self.SlicerSelectedModelsList:
-            if model[0] == obj_name:
+            if model[0] in obj_name:
                 model[1].deleteLater()
                 self.SlicerSelectedModelsList.remove(model)
-        slicer.mrmlScene.RemoveNode(slicer.util.getNode(obj_name))
+        for model in obj_name:
+            try: slicer.mrmlScene.RemoveNode(slicer.util.getNode(model))
+            except: pass
 
     def send_model_to_blender(self, modelNodeSelector):
         if not self.SlicerSelectedModelsList == []:

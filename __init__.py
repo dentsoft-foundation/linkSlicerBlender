@@ -309,7 +309,7 @@ def obj_check_send():
         sg = bpy.data.collections.new('SlicerLink')
     else:
         sg = bpy.data.collections['SlicerLink']
-    print(bpy.context.selected_objects)
+    #print(bpy.context.selected_objects)
     if not len(bpy.context.selected_objects) == 0 and len(bpy.context.selected_objects) == 1:
         if bpy.context.selected_objects[0].name not in bpy.data.collections['SlicerLink'].objects:
             asyncsock.socket_obj.sock_handler[0].send_data("CHECK", "STATUS_BREAK_" + bpy.context.selected_objects[0].name)
@@ -485,13 +485,18 @@ class deleteObjectsBoth(bpy.types.Operator):
             sg = bpy.data.collections.new('SlicerLink')
         else:
             sg = bpy.data.collections['SlicerLink']
+        packet = ""
         for ob in bpy.context.selected_objects:
-            asyncsock.socket_obj.sock_handler[0].send_data("DEL", ob.name)
-            try: sg.objects.unlink(ob)
-            except: pass
-            ob.select_set(True)
-            bpy.ops.object.delete()
+            #asyncsock.socket_obj.sock_handler[0].send_data("DEL", ob.name)
+            packet = packet + ob.name + ","
+            sg.objects.unlink(ob)
+            if context.scene.delete_slicer == False:
+                try:
+                    ob.select_set(True)
+                    bpy.ops.object.delete()
+                except: pass
             write_ob_transforms_to_cache(sg.objects)
+        if not packet == "": asyncsock.socket_obj.sock_handler[0].send_data("DEL", packet[:-1])
         return {'FINISHED'}
             
     
@@ -572,6 +577,8 @@ class SlicerLinkPanel(bpy.types.Panel):
 
             row = layout.row()
             row.operator("link_slicer.delete_objects_both")
+            #row = layout.row()
+            row.prop(context.scene, "delete_slicer")
 
 def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
 
@@ -588,6 +595,8 @@ def register():
 
     bpy.types.Scene.overwrite = bpy.props.BoolProperty(name = "Overwrite", default = True, description = "If False, will add objects, if True, will replace entire group with selection")
 
+    bpy.types.Scene.delete_slicer = bpy.props.BoolProperty(name = "Slicer only?", default = True, description = "When checked (default) object(s) is deleted only in slicer, otherwise both Blender and Slicer") 
+
     bpy.utils.register_class(SelectedtoSlicerGroup)
     bpy.utils.register_class(StopSlicerLink)
     bpy.utils.register_class(StartSlicerLinkServer)
@@ -603,6 +612,7 @@ def unregister():
     del bpy.types.Scene.host_port
     del bpy.types.Scene.socket_state
     del bpy.types.Scene.overwrite
+    del bpy.types.Scene.delete_slicer
     bpy.utils.unregister_class(SelectedtoSlicerGroup)
     bpy.utils.unregister_class(StopSlicerLink)
     bpy.utils.unregister_class(StartSlicerLinkServer)
