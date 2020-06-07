@@ -180,15 +180,15 @@ def send_obj_to_slicer(objects = []):
         else:
             sg = bpy.data.collections['SlicerLink']
 
-        for ob in objects: #[TODO] object group managment 
-            ob = bpy.data.objects[ob]
+        if len(objects) == 1:
+            ob = bpy.data.objects[objects[0]]
             #slicer does not like . in ob names
             if "." in ob.name:
                 ob.name.replace(".","_")
             
             me = ob.to_mesh(preserve_all_data_layers=False, depsgraph=None)
-            if not me:
-                continue
+            #if me:
+            #    return
 
             obj_verts = [list(v.co) for v in me.vertices]
             tot_verts = len(obj_verts[0])
@@ -208,9 +208,45 @@ def send_obj_to_slicer(objects = []):
             ob.to_mesh_clear()
 
             if ob.name in sg.objects:
-                continue
+                return
             else:
                 sg.objects.link(ob)
+
+        elif len(objects) > 1:
+            packet = ""
+            for ob in objects: #[TODO] object group managment 
+                ob = bpy.data.objects[ob]
+                #slicer does not like . in ob names
+                if "." in ob.name:
+                    ob.name.replace(".","_")
+                
+                me = ob.to_mesh(preserve_all_data_layers=False, depsgraph=None)
+                if not me:
+                    continue
+
+                obj_verts = [list(v.co) for v in me.vertices]
+                tot_verts = len(obj_verts[0])
+                obj_poly = []
+                for poly in me.polygons:
+                    obj_poly.append(tot_verts)
+                    for v in poly.vertices:
+                        obj_poly.append(v)
+                x_scene = build_xml_scene([ob])
+            
+                xml_str = tostring(x_scene).decode() #, encoding='unicode', method='xml')
+                packet = packet + "%s_POLYS_%s_XML_DATA_%s_N_OBJ_"%(obj_verts, obj_poly, xml_str)
+
+                #ShowMessageBox("Sending object to Slicer.", "linkSlicerBlender Info:")
+
+                #asyncsock.socket_obj.sock_handler[0].send_data("OBJ", packet)
+                ob.to_mesh_clear()
+
+                if ob.name in sg.objects:
+                    continue
+                else:
+                    sg.objects.link(ob)
+
+            asyncsock.socket_obj.sock_handler[0].send_data("OBJ_MULTIPLE", packet[:-len("_N_OBJ_")])
 
         write_ob_transforms_to_cache(sg.objects)
 
@@ -239,8 +275,25 @@ def obj_check_handle(data):
     elif status == "LINK":
         sg.objects.link(bpy.data.objects[obj_name])
         write_ob_transforms_to_cache(sg.objects)
+    elif status == "LINK_MULTIPLE":
+        obj_name = obj_name.split(",")
+        for obj in obj_name:
+            sg.objects.link(bpy.data.objects[obj])
+        write_ob_transforms_to_cache(sg.objects)
     elif status == "MISSING":
         send_obj_to_slicer([obj_name])
+    elif status == "MISSING_MULTIPLE":
+        obj_name = obj_name.split(",")
+        #print(obj_name)
+        send_obj_to_slicer(obj_name)
+    elif status == "LINK+MISSING_MULTIPLE":
+        unlinked, missing = obj_name.split(";")
+        unlinked = unlinked.split(",")
+        missing = missing.split(",")
+        send_obj_to_slicer(missing)
+        for obj in unlinked:
+            sg.objects.link(bpy.data.objects[obj])
+        write_ob_transforms_to_cache(sg.objects)
     elif status == "UNLINK":
         sg.objects.unlink(bpy.data.objects[obj_name])
         write_ob_transforms_to_cache(sg.objects)
@@ -256,10 +309,16 @@ def obj_check_send():
         sg = bpy.data.collections.new('SlicerLink')
     else:
         sg = bpy.data.collections['SlicerLink']
-
-    for ob in bpy.context.selected_objects:
-        if ob.name not in bpy.data.collections['SlicerLink'].objects:
-            asyncsock.socket_obj.sock_handler[0].send_data("CHECK", "STATUS_BREAK_" + ob.name)
+    print(bpy.context.selected_objects)
+    if not len(bpy.context.selected_objects) == 0 and len(bpy.context.selected_objects) == 1:
+        if bpy.context.selected_objects[0].name not in bpy.data.collections['SlicerLink'].objects:
+            asyncsock.socket_obj.sock_handler[0].send_data("CHECK", "STATUS_BREAK_" + bpy.context.selected_objects[0].name)
+    elif not len(bpy.context.selected_objects) == 0 and len(bpy.context.selected_objects) > 1:
+        names = ""
+        for ob in bpy.context.selected_objects:
+            if ob.name not in bpy.data.collections['SlicerLink'].objects:
+                names = names + ob.name + ","
+        asyncsock.socket_obj.sock_handler[0].send_data("CHECK", "STATUS_MULTIPLE_BREAK_" + names[:-1])
 
 @persistent
 def export_to_slicer(scene):

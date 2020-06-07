@@ -72,6 +72,7 @@ class SlicerComm():
         def _process_data(self):
             """We have the full ECHO command"""
             data = ''.join(self.received_data)
+            #print(data)
             data = data[:-len(packet_terminator)]
             data = data.split(' net_packet: ')
             self.received_data = [] #empty buffer

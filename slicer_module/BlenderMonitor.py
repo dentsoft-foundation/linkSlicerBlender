@@ -11,6 +11,7 @@ from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree, tos
 from xml.etree import ElementTree as ET
 import re
 import numpy as np
+#import time
 
 #http://codeprogress.com/python/libraries/pyqt/showPyQTExample.php?index=419&key=QFileSystemWatcherDirChange&version=4
 #http://stackoverflow.com/questions/32097163/pyqt-qfilesystemwatcher-doesnt-capture-the-file-added
@@ -197,6 +198,23 @@ class BlenderMonitorWidget:
                 self.sock.send_data("CHECK", "LINK_BREAK_" + obj_name)
             except slicer.util.MRMLNodeNotFoundException:
                 self.sock.send_data("CHECK", "MISSING_BREAK_" + obj_name)
+        elif status == "STATUS_MULTIPLE":
+            obj_name = obj_name.split(",")
+            #print(obj_name)
+            missing_objs = ""
+            unlinked_objs = ""
+            for obj in obj_name:
+                try:
+                    slicer.util.getNode(obj)
+                    unlinked_objs = unlinked_objs + obj + ","
+                except slicer.util.MRMLNodeNotFoundException:
+                    missing_objs = missing_objs + obj + ","
+            if not unlinked_objs == "" and missing_objs == "":
+                self.sock.send_data("CHECK", "LINK_MULTIPLE_BREAK_" + unlinked_objs[:-1])
+            elif not missing_objs == "" and unlinked_objs == "":
+                self.sock.send_data("CHECK", "MISSING_MULTIPLE_BREAK_" + missing_objs[:-1])
+            elif not missing_objs == "" and not unlinked_objs == "":
+                self.sock.send_data("CHECK", "LINK+MISSING_MULTIPLE_BREAK_" + unlinked_objs[:-1] + ";" + missing_objs[:-1])
 
     def obj_check_send(self, modelNodeSelectorObj):
         #modelNode = modelNodeSelectorObj
@@ -299,6 +317,11 @@ class BlenderMonitorWidget:
                         
         return x_scene
 
+    def import_multiple(self, data):
+        objects = data.split("_N_OBJ_")
+        for obj in objects:
+            self.import_obj_from_blender(obj)
+
     def import_obj_from_blender(self, data):
         slicer.util.confirmOkCancelDisplay("Received object(s) from Blender.", "linkSlicerBlender Info:")
         def mkVtkIdList(it):
@@ -319,7 +342,6 @@ class BlenderMonitorWidget:
             vertex_indices = obj_polys[offset : offset + vertices_per_face]
             blender_faces.append(vertex_indices)
             offset += vertices_per_face
-
         tree = ET.ElementTree(ET.fromstring(xml))
         x_scene = tree.getroot()
 
@@ -354,7 +376,7 @@ class BlenderMonitorWidget:
             self.watching = True
             self.playButton.text = "Stop"
             if self.sock == None:
-                self.sock = asyncsock.SlicerComm.EchoClient(str(self.host_address.text), int(self.host_port.text), [("XML", self.update_scene), ("OBJ", self.import_obj_from_blender), ("CHECK", self.obj_check_handle), ("DEL", self.delete_model)])
+                self.sock = asyncsock.SlicerComm.EchoClient(str(self.host_address.text), int(self.host_port.text), [("XML", self.update_scene), ("OBJ", self.import_obj_from_blender), ("OBJ_MULTIPLE", self.import_multiple), ("CHECK", self.obj_check_handle), ("DEL", self.delete_model)])
                 #self.sock.send_data("TEST", 'bogus data from slicer!')
         else:
             self.watching = False
