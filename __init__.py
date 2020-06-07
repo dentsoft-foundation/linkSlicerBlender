@@ -454,7 +454,8 @@ class linkObjectsToSlicer(bpy.types.Operator):
     bl_label = "Link Object(s)"
     
     def execute(self,context):
-        obj_check_send()
+        if not asyncsock.socket_obj == None:
+            obj_check_send()
         return {'FINISHED'}
 
 class unlinkObjectsFromSlicer(bpy.types.Operator):
@@ -465,15 +466,16 @@ class unlinkObjectsFromSlicer(bpy.types.Operator):
     bl_label = "Unlink Object(s)"
     
     def execute(self,context):
-        if "SlicerLink" not in bpy.data.collections:
-            sg = bpy.data.collections.new('SlicerLink')
-        else:
-            sg = bpy.data.collections['SlicerLink']
+        if not asyncsock.socket_obj == None:
+            if "SlicerLink" not in bpy.data.collections:
+                sg = bpy.data.collections.new('SlicerLink')
+            else:
+                sg = bpy.data.collections['SlicerLink']
 
-        for ob in bpy.context.selected_objects:
-            sg.objects.unlink(ob)
-            asyncsock.socket_obj.sock_handler[0].send_data("CHECK", "UNLINK_BREAK_" + ob.name)
-            write_ob_transforms_to_cache(sg.objects)
+            for ob in bpy.context.selected_objects:
+                sg.objects.unlink(ob)
+                asyncsock.socket_obj.sock_handler[0].send_data("CHECK", "UNLINK_BREAK_" + ob.name)
+                write_ob_transforms_to_cache(sg.objects)
         return {'FINISHED'}
 
 class deleteObjectsBoth(bpy.types.Operator):
@@ -484,25 +486,54 @@ class deleteObjectsBoth(bpy.types.Operator):
     bl_label = "Delete Object(s)"
     
     def execute(self,context):
-        if "SlicerLink" not in bpy.data.collections:
-            sg = bpy.data.collections.new('SlicerLink')
+        if not asyncsock.socket_obj == None:
+            if "SlicerLink" not in bpy.data.collections:
+                sg = bpy.data.collections.new('SlicerLink')
+            else:
+                sg = bpy.data.collections['SlicerLink']
+            packet = ""
+            for ob in [(ob, ob.name) for ob in bpy.context.selected_objects]:
+                #asyncsock.socket_obj.sock_handler[0].send_data("DEL", ob.name)
+                packet = packet + ob[1] + ","
+                if ob[1] in sg.objects: 
+                    sg.objects.unlink(ob[0])
+                    print("unlinked: " + ob[1])
+                if context.scene.delete_slicer == False:
+                    try:
+                        ob[0].select_set(True)
+                        bpy.ops.object.delete(use_global=True, confirm=False)
+                    except: pass
+                write_ob_transforms_to_cache(sg.objects)
+            if not packet == "": asyncsock.socket_obj.sock_handler[0].send_data("DEL", packet[:-1])
         else:
-            sg = bpy.data.collections['SlicerLink']
-        packet = ""
-        for ob in bpy.context.selected_objects:
-            #asyncsock.socket_obj.sock_handler[0].send_data("DEL", ob.name)
-            packet = packet + ob.name + ","
-            sg.objects.unlink(ob)
-            if context.scene.delete_slicer == False:
-                try:
-                    ob.select_set(True)
-                    bpy.ops.object.delete()
-                except: pass
-            write_ob_transforms_to_cache(sg.objects)
-        if not packet == "": asyncsock.socket_obj.sock_handler[0].send_data("DEL", packet[:-1])
+            for ob in bpy.context.selected_objects:
+                ob.select_set(True)
+                bpy.ops.object.delete(use_global=True, confirm=False)
         return {'FINISHED'}
             
+class DELkeyModalOverride(bpy.types.Operator):
+    """Process input while Control key is pressed."""
+    bl_idname = 'link_slicer.del_key_modal'
+    bl_label = 'Process Input'
     
+    def modal(self, context, event):
+        
+        print("MODAL")
+        
+        if event.type in {'ESC',}:
+            print("END")
+            # bpy.ops.link_slicer.delete_objects_both("INVOKE_DEFAULT")
+            return {'CANCELLED'}
+
+        return {'RUNNING_MODAL'}
+
+    def invoke(self, context, event):
+        print("INVOKE")
+        
+        context.window_manager.modal_handler_add(self) # add modal handler!!!
+        return {'RUNNING_MODAL'}
+
+
 class StopSlicerLink(bpy.types.Operator):
     """
     Stop updating slicer and remove the handler from scene_update_post
@@ -608,6 +639,8 @@ def register():
     bpy.utils.register_class(linkObjectsToSlicer)
     bpy.utils.register_class(unlinkObjectsFromSlicer)
     bpy.utils.register_class(deleteObjectsBoth)
+
+    bpy.utils.register_class(DELkeyModalOverride)
     
 
 def unregister():    
@@ -623,7 +656,9 @@ def unregister():
     bpy.utils.unregister_class(SlicerLinkPanel)
     bpy.utils.unregister_class(linkObjectsToSlicer)
     bpy.utils.unregister_class(unlinkObjectsFromSlicer)
-    bpy.utils.unregister_class(deleteObjectsBoth)    
+    bpy.utils.unregister_class(deleteObjectsBoth)
+
+    bpy.utils.unregister_class(DELkeyModalOverride)
     
     
     handlers = [hand.__name__ for hand in bpy.app.handlers.depsgraph_update_post]

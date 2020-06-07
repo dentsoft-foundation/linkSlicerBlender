@@ -217,11 +217,11 @@ class BlenderComm():
             data = data.split(' net_packet: ')
             #print(data)
             self.received_data = [] #empty buffer
-            #try:
-            if data[0] in self.cmd_ops_client: self.cmd_ops_client[data[0]](data[1]) #call stored function, pass stored arguments from tuple
-            elif data[0] in self.cmd_ops_client and len(data) > 2: self.cmd_ops_client[data[0]][0](data[1], *self.cmd_ops_client[data[0]][1])
-            else: pass
-            #except: pass
+            try:
+                if data[0] in self.cmd_ops_client: self.cmd_ops_client[data[0]](data[1]) #call stored function, pass stored arguments from tuple
+                elif data[0] in self.cmd_ops_client and len(data) > 2: self.cmd_ops_client[data[0]][0](data[1], *self.cmd_ops_client[data[0]][1])
+                else: pass
+            except: pass
 
         def send_data(self, cmd, data):
             self.send(str.encode(cmd.upper() + " net_packet: " + data + packet_terminator))
