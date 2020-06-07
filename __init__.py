@@ -155,7 +155,7 @@ def import_obj_from_slicer(data):
     #sg = bpy.data.collections['SlicerLink']
     tree = ElementTree(fromstring(xml))
     x_scene = tree.getroot()
-    #we are expecting one object from slicer, so no need to iterate the XML object tree
+    #we are expecting one object per packet from slicer, so no need to iterate the XML object tree
     new_mesh = bpy.data.meshes.new(x_scene[0].get('name')+"_data")
     new_mesh.from_pydata(obj_points, [], blender_faces)
     new_mesh.update()
@@ -264,8 +264,11 @@ def obj_check_handle(data):
     else:
         sg = bpy.data.collections['SlicerLink']
     if status == "STATUS":
-        link_col_found = obj_name in bpy.data.collections['SlicerLink'].objects
-        b_obj_exist = obj_name in bpy.data.objects
+        print([ob.name for ob in bpy.data.collections['SlicerLink'].objects[:]])
+        print(obj_name)
+        print([ob.name for ob in bpy.data.objects[:]])
+        link_col_found = obj_name in [ob.name for ob in bpy.data.collections['SlicerLink'].objects[:]]
+        b_obj_exist = obj_name in [ob.name for ob in bpy.data.objects[:]]
         if link_col_found == True and b_obj_exist == True:
             asyncsock.socket_obj.sock_handler[0].send_data("CHECK", "LINKED_BREAK_" + obj_name)
         elif link_col_found == False and b_obj_exist == True:
