@@ -164,7 +164,7 @@ def send_obj_to_slicer(objects = []):
             #slicer does not like . in ob names
             if "." in ob.name:
                 ob.name.replace(".","_")
-            
+
             me = ob.to_mesh(preserve_all_data_layers=False, depsgraph=None)
             #if me:
             #    return
@@ -198,7 +198,7 @@ def send_obj_to_slicer(objects = []):
                 #slicer does not like . in ob names
                 if "." in ob.name:
                     ob.name.replace(".","_")
-                
+
                 me = ob.to_mesh(preserve_all_data_layers=False, depsgraph=None)
                 if not me:
                     continue
@@ -437,6 +437,11 @@ class linkObjectsToSlicer(bpy.types.Operator):
     
     def execute(self,context):
         if not asyncsock.socket_obj == None:
+            for ob in context.selected_objects:
+                TRIANGULATE_mod = ob.modifiers.new(name='triangles4slicer_' + ob.name, type="TRIANGULATE")
+                context.view_layer.objects.active = ob
+                bpy.ops.object.modifier_apply(apply_as='DATA', modifier=TRIANGULATE_mod.name)
+
             obj_check_send()
         return {'FINISHED'}
 
@@ -487,7 +492,7 @@ class deleteObjectsBoth(bpy.types.Operator):
         del_mode = bpy.context.scene.DEL_type_props.Mode
         if "Blender" in del_mode:
             for ob in bpy.context.selected_objects:
-                ob.select_set(True)
+                #ob.select_set(True)
                 bpy.ops.object.delete(use_global=True, confirm=False)
         elif "3D Slicer" in del_mode:
             if not asyncsock.socket_obj == None:
@@ -510,7 +515,7 @@ class deleteObjectsBoth(bpy.types.Operator):
                     write_ob_transforms_to_cache(sg.objects)
                 if not packet == "": asyncsock.socket_obj.sock_handler[0].send_data("DEL", packet[:-1])
             for ob in bpy.context.selected_objects:
-                ob.select_set(True)
+                #context.view_layer.objects.active = ob
                 bpy.ops.object.delete(use_global=True, confirm=False)
             
         return {'FINISHED'}
