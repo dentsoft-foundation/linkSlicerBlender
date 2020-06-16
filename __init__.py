@@ -34,6 +34,7 @@ import os
 import inspect
 import time
 import numpy as np
+from numpy import nan
 
 #Blender
 import bpy
@@ -111,7 +112,6 @@ def detect_transforms():
 
 def import_obj_from_slicer(data):
     #ShowMessageBox("Received object from Slicer.", "linkSlicerBlender Info:")
-
     obj, xml = data.split("_XML_DATA_")
     obj_points, obj_polys = obj.split("_POLYS_")
     obj_points = eval(obj_points)
