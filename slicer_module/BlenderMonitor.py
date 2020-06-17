@@ -11,6 +11,7 @@ from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree, tos
 from xml.etree import ElementTree as ET
 import re
 import numpy as np
+import SurfaceToolbox
 #import time
 
 #http://codeprogress.com/python/libraries/pyqt/showPyQTExample.php?index=419&key=QFileSystemWatcherDirChange&version=4
@@ -249,7 +250,59 @@ class BlenderMonitorWidget:
 
     def send_model_to_blender(self, modelNodeSelector):
         if not self.SlicerSelectedModelsList == []:
-            modelNode = modelNodeSelector #.currentNode()
+            modelNode = modelNodeSelector
+            SFT_logic = SurfaceToolbox.SurfaceToolboxLogic()
+            class state(object):
+                processValue = ""
+                parameterNode = SFT_logic.getParameterNode()
+                inputParamFile = ""
+                outputParamFile = ""
+                inputModelNode = modelNode
+                outputModelNode = modelNode
+                decimation = True
+                reduction = 0.95
+                boundaryDeletion = True
+                smoothing = True
+                smoothingMethod = "Laplace"
+                laplaceIterations = 300
+                laplaceRelaxation = 0.5
+                taubinIterations = 30
+                taubinPassBand = 0.1
+                boundarySmoothing = True
+                normals = False
+                flipNormals = False
+                autoOrientNormals = False
+                mirror = False
+                mirrorX = False
+                mirrorY = False
+                mirrorZ = False
+                splitting = False
+                featureAngle = 30.0
+                cleaner = True
+                fillHoles = True
+                fillHolesSize = 500.0
+                connectivity = True
+                scale = False
+                scaleX = 0.5
+                scaleY = 0.5
+                scaleZ = 0.5
+                translate = False
+                transX = 0
+                transY = 0
+                transZ = 0
+                relax = True
+                relaxIterations = 0.95
+                border = False
+                origin = False
+            
+            def updateProcess(value):
+                """Display changing process value"""
+                return
+
+            
+            result = SFT_logic.applyFilters(state, updateProcess)
+            slicer.app.processEvents()
+            #.currentNode()
             modelNode.CreateDefaultDisplayNodes()
             model_points = str(slicer.util.arrayFromModelPoints(modelNode).tolist())
             model_polys = str(self.arrayFromModelPolys(modelNode).tolist())
