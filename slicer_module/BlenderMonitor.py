@@ -170,6 +170,11 @@ class BlenderMonitorWidget:
             #update object location in scene
             transform.SetAndObserveMatrixTransformToParent(my_matrix)
 
+            #update color
+            if b_ob.find("material"):
+                mat_color = b_ob.find('material')
+                slicer_model.GetDisplayNode().SetColor(float(mat_color.find('r').text), float(mat_color.find('g').text), float(mat_color.find('b').text))
+
             #permanently apply transform - does not seem to work in live mode
             #logic = slicer.vtkSlicerTransformLogic()
             #logic.hardenTransform(slicer_model)
