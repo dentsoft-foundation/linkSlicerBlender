@@ -553,7 +553,7 @@ class SlicerLinkPanel(bpy.types.Panel):
     bl_idname = "SCENE_PT_layout"
     bl_space_type = "VIEW_3D"
     bl_region_type = 'UI'
-    bl_category = "Open Dental CAD"
+    bl_category = "ODC"
     bl_context = ""
 
     def draw(self, context):
