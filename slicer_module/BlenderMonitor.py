@@ -191,7 +191,8 @@ class BlenderMonitorWidget:
             self.sock.send_data("CHECK", "LINK_BREAK_" + obj_name)
             #self.onaddModelButtonToggled()
         elif status == "LINKED":
-            slicer.util.confirmOkCancelDisplay("Object already linked.", "linkSlicerBlender Info:")
+            #slicer.util.confirmOkCancelDisplay("Object already linked.", "linkSlicerBlender Info:")
+            pass
         elif status == "UNLINK":
             for model in self.SlicerSelectedModelsList:
                 if model[0] == obj_name:
@@ -230,7 +231,7 @@ class BlenderMonitorWidget:
                     self.SlicerSelectedModelsList[self.SlicerSelectedModelsList.index(model)][0] = modelNodeSelectorObj.GetName()
                     self.SlicerSelectedModelsList[self.SlicerSelectedModelsList.index(model)][2] = ""
 
-            slicer.util.confirmOkCancelDisplay("Checking object.", "linkSlicerBlender Info:")
+            #slicer.util.confirmOkCancelDisplay("Checking object.", "linkSlicerBlender Info:")
 
             model_name = modelNodeSelectorObj.GetName()
             self.sock.send_data("CHECK", "STATUS_BREAK_" + model_name)
@@ -317,7 +318,7 @@ class BlenderMonitorWidget:
             packet = "%s_POLYS_%s_XML_DATA_%s"%(model_points, model_polys, tostring(self.build_xml_scene(modelNode.GetName())).decode())
             #print(model_polys)
             #print(packet)
-            slicer.util.confirmOkCancelDisplay("Sending object to Blender.", "linkSlicerBlender Info:")
+            #slicer.util.confirmOkCancelDisplay("Sending object to Blender.", "linkSlicerBlender Info:")
 
             self.sock.send_data("OBJ", packet)
 
@@ -387,7 +388,7 @@ class BlenderMonitorWidget:
             self.import_obj_from_blender(obj)
 
     def import_obj_from_blender(self, data):
-        slicer.util.confirmOkCancelDisplay("Received object(s) from Blender.", "linkSlicerBlender Info:")
+        #slicer.util.confirmOkCancelDisplay("Received object(s) from Blender.", "linkSlicerBlender Info:")
         def mkVtkIdList(it):
             vil = vtk.vtkIdList()
             for i in it:
