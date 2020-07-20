@@ -602,6 +602,21 @@ class SlicerLinkPanel(bpy.types.Panel):
             #row = layout.row()
             #row.prop(context.scene, "delete_slicer")
 
+
+@persistent
+def on_load_new(*args):
+    bpy.ops.link_slicer.slicer_link_stop("INVOKE_DEFAULT")
+
+@persistent
+def on_save_pre(*args):
+    bpy.context.scene.socket_state = "NONE"
+
+@persistent
+def on_save_post(*args):
+    if asyncsock.socket_obj is not None:
+        bpy.context.scene.socket_state = "SERVER"
+
+
 def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
 
     def draw(self, context):
@@ -610,6 +625,12 @@ def ShowMessageBox(message = "", title = "Message Box", icon = 'INFO'):
     bpy.context.window_manager.popup_menu(draw, title = title, icon = icon)
 
 def register():
+    if not on_load_new in bpy.app.handlers.load_pre:
+        bpy.app.handlers.load_pre.append(on_load_new)
+    if not on_save_pre in bpy.app.handlers.save_pre:
+        bpy.app.handlers.save_pre.append(on_save_pre)
+    if not on_save_post in bpy.app.handlers.save_post:
+        bpy.app.handlers.save_post.append(on_save_post)
     #register host address, port input, state=NONE/CLIENT/SERVER
     bpy.types.Scene.host_addr = bpy.props.StringProperty(name = "Host", description = "Enter the host PORT the server to listen on OR client to connect to.", default = asyncsock.address[0])
     bpy.types.Scene.host_port = bpy.props.StringProperty(name = "Port", description = "Enter the host PORT the server to listen on OR client to connect to.", default = str(asyncsock.address[1]))
@@ -629,7 +650,14 @@ def register():
     bpy.types.Scene.DEL_type_props = bpy.props.PointerProperty(type=DEL_type_props)
     
 
-def unregister():    
+def unregister():
+    if on_load_new in bpy.app.handlers.load_pre:
+        bpy.app.handlers.load_pre.remove(on_load_new)
+    if on_save_pre in bpy.app.handlers.save_pre:
+        bpy.app.handlers.save_pre.remove(on_save_pre)
+    if on_save_post in bpy.app.handlers.save_post:
+        bpy.app.handlers.save_post.remove(on_save_post)
+    
     del bpy.types.Scene.host_addr
     del bpy.types.Scene.host_port
     del bpy.types.Scene.socket_state
