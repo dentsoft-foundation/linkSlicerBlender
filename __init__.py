@@ -77,6 +77,8 @@ def material_to_xml_element(mat):
     g.text = str(round(mat.diffuse_color[1],4))
     b = SubElement(xml_mat, 'b')
     b.text = str(round(mat.diffuse_color[2],4))
+    a = SubElement(xml_mat, 'a')
+    a.text = str(round(mat.diffuse_color[3],2))
     
     return xml_mat
 

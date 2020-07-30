@@ -174,7 +174,12 @@ class BlenderMonitorWidget:
             if b_ob.find("material"):
                 mat_color = b_ob.find('material')
                 slicer_model.GetDisplayNode().SetColor(float(mat_color.find('r').text), float(mat_color.find('g').text), float(mat_color.find('b').text))
-
+                slicer_model.GetDisplayNode().SetOpacity(float(mat_color.find('a').text))
+                #modelDisplayNode=slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelDisplayNode")
+                #modelDisplayNode.SetViewNodeIDs([slicer.mrmlScene.GetFirstNodeByName("View1").GetID()])
+                #modelDisplayNode.SetColor(float(mat_color.find('r').text), float(mat_color.find('g').text), float(mat_color.find('b').text))
+                #modelDisplayNode.SetOpacity(float(mat_color.find('a').text))
+                #slicer_model.AddAndObserveDisplayNodeID(modelDisplayNode.GetID())
             #permanently apply transform - does not seem to work in live mode
             #logic = slicer.vtkSlicerTransformLogic()
             #logic.hardenTransform(slicer_model)
