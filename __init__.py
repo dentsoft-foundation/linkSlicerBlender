@@ -442,7 +442,7 @@ class linkObjectsToSlicer(bpy.types.Operator):
             for ob in context.selected_objects:
                 TRIANGULATE_mod = ob.modifiers.new(name='triangles4slicer_' + ob.name, type="TRIANGULATE")
                 context.view_layer.objects.active = ob
-                bpy.ops.object.modifier_apply(apply_as='DATA', modifier=TRIANGULATE_mod.name)
+                bpy.ops.object.modifier_apply(modifier=TRIANGULATE_mod.name)
 
             obj_check_send()
         return {'FINISHED'}
